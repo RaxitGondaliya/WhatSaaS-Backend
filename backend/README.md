@@ -1,96 +1,35 @@
-# WhatSaaS Frontend
+# WhatSaaS Backend
 
-WhatSaaS is a WhatsApp SaaS CRM platform built for businesses to manage contacts, customer requests, chatbot automation, broadcasts, analytics, reports, notifications, and team members from a single dashboard.
+Backend API for WhatSaaS — a WhatsApp SaaS CRM platform built to manage businesses, contacts, requests, chatbot flows, broadcasts, analytics, reports, notifications, and team members.
 
 ## Features
 
-### Authentication
-
-* Login
-* Signup
-* Forgot Password
+* JWT Authentication
 * Google Login
-
-### Dashboard
-
-* Business overview
-* Recent requests
-* Recent broadcasts
-* Active contacts
-* Quick actions
-
-### Contacts
-
-* Add contact
-* Edit contact
-* Delete contact
-* Import contacts
-* Contact details page
-
-### Requests
-
-* Customer request management
-* Status tracking
-* Request completion
-* Payment tracking
-* Profit and expense management
-
-### Chatbot
-
-* Create chatbot flows
-* Trigger keywords
-* Button messages
-* Ask question flows
-* Activate/deactivate chatbot flows
-
-### Broadcast Campaigns
-
-* Create campaigns
-* Draft campaigns
-* Schedule campaigns
-* Campaign history
-* Filters and search
-
-### Analytics & Finance
-
-* Revenue tracking
-* Expense tracking
-* Profit reports
-* Service performance
-* Financial activity
-
-### Reports Center
-
-* Requests reports
-* Contacts reports
-* Broadcast reports
-* Chatbot reports
-* Payment reports
-
-### Notifications
-
-* Real-time notifications
-* Sound notifications
-* Read/Unread management
-
-### Settings
-
-* Business Profile
-* Notification Preferences
-* Team Members
-* Account Settings
+* Forgot Password (OTP)
+* Business Setup
+* Team Member Management
+* Contacts Management
+* Request Management
+* Chatbot Flow Management
+* Broadcast Campaign Management
+* Analytics & Finance APIs
+* Reports Center APIs
+* Dashboard APIs
+* Notification System
 
 ## Tech Stack
 
-* Next.js
-* React.js
-* Tailwind CSS
-* Axios
-* React Hot Toast
+* Node.js
+* Express.js
+* MongoDB
+* Mongoose
+* JWT
+* Nodemailer
 
 ## Installation
 
-Clone repository:
+Clone the repository:
 
 ```bash
 git clone <repository-url>
@@ -102,49 +41,66 @@ Install dependencies:
 npm install
 ```
 
-Run development server:
+Create a `.env` file:
+
+```env
+PORT=5000
+MONGO_URI=your_mongodb_connection
+JWT_SECRET=your_jwt_secret
+
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email
+SMTP_PASS=your_password
+```
+
+Start development server:
 
 ```bash
 npm run dev
 ```
 
-Application runs on:
+Server runs on:
 
 ```text
-http://localhost:3000
+http://localhost:5000
+```
+
+## API Modules
+
+```text
+/api/auth
+/api/business
+/api/team-members
+/api/contacts
+/api/requests
+/api/dashboard
+/api/analytics
+/api/reports
+/api/chatbot-flows
+/api/broadcast-campaigns
+/api/notifications
 ```
 
 ## Project Structure
 
 ```text
 src/
-├── app/
-├── api/
-├── components/
-├── hooks/
-├── lib/
-├── services/
-└── styles/
+├── config/
+├── controllers/
+├── middleware/
+├── models/
+├── routes/
+├── utils/
+└── app.js
 ```
-
-## Available Modules
-
-* Dashboard
-* Contacts
-* Requests
-* Chatbot
-* Templates
-* Broadcast
-* Analytics
-* Reports
-* Wallet
-* Settings
 
 ## Current Status
 
-Implemented:
+### Completed
 
 * Authentication
+* Business Setup
 * Contacts
 * Requests
 * Chatbot Flows
@@ -154,20 +110,13 @@ Implemented:
 * Notifications
 * Team Management
 
-Planned:
+### Planned
 
-* Wallet Integration
+* Wallet Module
+* Templates Module
 * WhatsApp Meta Integration
-* Template Management
-* Real Broadcast Sending
-* Payment Gateway Integration
-
-## Branch Strategy
-
-```text
-main        -> Stable version
-development -> Active development
-```
+* Real Broadcast Delivery
+* Export Reports (PDF/Excel)
 
 ## Author
 
