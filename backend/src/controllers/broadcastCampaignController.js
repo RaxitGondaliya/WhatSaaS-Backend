@@ -1,0 +1,680 @@
+const BroadcastCampaign = require('../models/BroadcastCampaign');
+const Contact = require('../models/Contact');
+const User = require('../models/User');
+
+const VALID_CAMPAIGN_TYPES = ['marketing', 'utility', 'reminder', 'custom'];
+const VALID_MESSAGE_FORMATS = ['text', 'image', 'video', 'document'];
+const VALID_RECIPIENTS_TYPES = ['all_contacts', 'contact_group', 'selected_contacts'];
+const VALID_STATUSES = ['draft', 'scheduled', 'sent', 'cancelled'];
+const VALID_BUTTON_TYPES = ['url', 'phone', 'quick_reply'];
+
+const normalizeText = (value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  return value.trim().toLowerCase();
+};
+
+const normalizeEnumText = (value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+};
+
+const normalizeOptionalString = (value) => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  return value.trim();
+};
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const buildCreatedAtDateRange = (month, year) => {
+  const parsedYear = Number.parseInt(year, 10);
+
+  if (Number.isNaN(parsedYear)) {
+    return null;
+  }
+
+  if (month !== undefined && month !== '') {
+    const parsedMonth = Number.parseInt(month, 10);
+
+    if (Number.isNaN(parsedMonth) || parsedMonth < 1 || parsedMonth > 12) {
+      return null;
+    }
+
+    const start = new Date(parsedYear, parsedMonth - 1, 1);
+    const end = new Date(parsedYear, parsedMonth, 1);
+
+    return { start, end, query: { $gte: start, $lt: end } };
+  }
+
+  const start = new Date(parsedYear, 0, 1);
+  const end = new Date(parsedYear + 1, 0, 1);
+
+  return { start, end, query: { $gte: start, $lt: end } };
+};
+
+const normalizeStringArray = (value) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item) => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const normalizeButtons = (buttons) => {
+  if (!Array.isArray(buttons)) {
+    return [];
+  }
+
+  return buttons.map((button) => ({
+    text: normalizeOptionalString(button?.text),
+    type: VALID_BUTTON_TYPES.includes(normalizeText(button?.type))
+      ? normalizeText(button.type)
+      : 'quick_reply',
+    value: normalizeOptionalString(button?.value),
+  }));
+};
+
+const normalizeSelectedContacts = (selectedContacts) => (
+  Array.isArray(selectedContacts) ? selectedContacts.filter(Boolean) : []
+);
+
+const applyRecipientRules = (campaign) => {
+  if (campaign.recipientsType === 'all_contacts') {
+    campaign.selectedContacts = [];
+    campaign.contactGroup = '';
+    return;
+  }
+
+  if (campaign.recipientsType === 'selected_contacts') {
+    campaign.selectedContacts = normalizeSelectedContacts(campaign.selectedContacts);
+    campaign.contactGroup = '';
+    return;
+  }
+
+  if (campaign.recipientsType === 'contact_group') {
+    campaign.selectedContacts = [];
+    campaign.contactGroup = normalizeOptionalString(campaign.contactGroup);
+  }
+};
+
+const applyMessageFormatRules = (campaign) => {
+  if (campaign.messageFormat === 'text') {
+    campaign.mediaUrl = '';
+    campaign.mediaName = '';
+  }
+};
+
+const getCampaignScope = async (userId) => {
+  const currentUser = await User.findById(userId);
+
+  if (!currentUser) {
+    return { errorStatus: 404, errorMessage: 'User not found' };
+  }
+
+  if (!currentUser.businessId) {
+    return {
+      currentUser,
+      businessId: null,
+      ownerId: currentUser._id,
+    };
+  }
+
+  const owner = currentUser.role === 'owner'
+    ? currentUser
+    : await User.findOne({ businessId: currentUser.businessId, role: 'owner' });
+
+  return {
+    currentUser,
+    businessId: currentUser.businessId,
+    ownerId: owner?._id || currentUser._id,
+  };
+};
+
+const sendScopeError = (res, scope) => {
+  if (!scope.errorStatus) {
+    return false;
+  }
+
+  res.status(scope.errorStatus).json({
+    success: false,
+    message: scope.errorMessage,
+  });
+  return true;
+};
+
+const buildScopedQuery = (scope, extra = {}) => ({
+  ownerId: scope.ownerId,
+  businessId: scope.businessId,
+  ...extra,
+});
+
+const buildContactQuery = (scope, extra = {}) => ({
+  ownerId: scope.ownerId,
+  businessId: scope.businessId,
+  status: 'active',
+  isDeleted: false,
+  ...extra,
+});
+
+const validateCampaignInput = ({ campaignType, messageFormat, recipientsType, status }) => {
+  if (campaignType !== undefined && !VALID_CAMPAIGN_TYPES.includes(campaignType)) {
+    return 'Campaign type must be marketing, utility, reminder, or custom';
+  }
+
+  if (messageFormat !== undefined && !VALID_MESSAGE_FORMATS.includes(messageFormat)) {
+    return 'Message format must be text, image, video, or document';
+  }
+
+  if (recipientsType !== undefined && !VALID_RECIPIENTS_TYPES.includes(recipientsType)) {
+    return 'Recipients type must be all_contacts, contact_group, or selected_contacts';
+  }
+
+  if (status !== undefined && !VALID_STATUSES.includes(status)) {
+    return 'Status must be draft, scheduled, sent, or cancelled';
+  }
+
+  return null;
+};
+
+const calculateEstimatedRecipients = async (scope, campaign) => {
+  if (campaign.recipientsType === 'selected_contacts') {
+    return normalizeSelectedContacts(campaign.selectedContacts).length;
+  }
+
+  if (campaign.recipientsType === 'contact_group') {
+    const contactGroup = normalizeOptionalString(campaign.contactGroup);
+
+    if (!contactGroup) {
+      return 0;
+    }
+
+    return Contact.countDocuments(buildContactQuery(scope, { tags: contactGroup }));
+  }
+
+  return Contact.countDocuments(buildContactQuery(scope));
+};
+
+const formatCampaign = (campaign) => ({
+  _id: campaign._id,
+  businessId: campaign.businessId,
+  ownerId: campaign.ownerId,
+  createdBy: campaign.createdBy,
+  updatedBy: campaign.updatedBy,
+  campaignName: campaign.campaignName,
+  description: campaign.description,
+  campaignType: campaign.campaignType,
+  messageFormat: campaign.messageFormat,
+  messageContent: campaign.messageContent,
+  mediaUrl: campaign.mediaUrl,
+  mediaName: campaign.mediaName,
+  buttons: campaign.buttons,
+  variables: campaign.variables,
+  recipientsType: campaign.recipientsType,
+  selectedContacts: campaign.selectedContacts,
+  contactGroup: campaign.contactGroup,
+  estimatedRecipients: campaign.estimatedRecipients,
+  status: campaign.status,
+  scheduleAt: campaign.scheduleAt,
+  sentAt: campaign.sentAt,
+  totalSent: campaign.totalSent,
+  totalDelivered: campaign.totalDelivered,
+  totalFailed: campaign.totalFailed,
+  createdAt: campaign.createdAt,
+  updatedAt: campaign.updatedAt,
+});
+
+const normalizeCampaignPayload = (body, existing = {}) => {
+  const payload = {};
+  const fields = [
+    'campaignName',
+    'description',
+    'campaignType',
+    'messageFormat',
+    'messageContent',
+    'mediaUrl',
+    'mediaName',
+    'buttons',
+    'variables',
+    'recipientsType',
+    'selectedContacts',
+    'contactGroup',
+    'status',
+    'scheduleAt',
+  ];
+
+  fields.forEach((field) => {
+    if (body[field] !== undefined) {
+      payload[field] = body[field];
+    }
+  });
+
+  if (payload.campaignType !== undefined) payload.campaignType = normalizeEnumText(payload.campaignType);
+  if (payload.messageFormat !== undefined) payload.messageFormat = normalizeEnumText(payload.messageFormat);
+  if (payload.recipientsType !== undefined) payload.recipientsType = normalizeEnumText(payload.recipientsType);
+  if (payload.status !== undefined) payload.status = normalizeEnumText(payload.status);
+  if (payload.buttons !== undefined) payload.buttons = normalizeButtons(payload.buttons);
+  if (payload.variables !== undefined) payload.variables = normalizeStringArray(payload.variables);
+  if (payload.selectedContacts !== undefined) {
+    payload.selectedContacts = normalizeSelectedContacts(payload.selectedContacts);
+  }
+  if (payload.contactGroup !== undefined) payload.contactGroup = normalizeOptionalString(payload.contactGroup);
+  if (payload.scheduleAt !== undefined) payload.scheduleAt = payload.scheduleAt ? new Date(payload.scheduleAt) : null;
+
+  const merged = { ...existing, ...payload };
+  return { payload, merged };
+};
+
+/**
+ * GET /api/broadcast-campaigns
+ * Return all campaigns for current owner/business scope.
+ */
+exports.getCampaigns = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const { status, campaignType, search, month, year } = req.query;
+    const query = buildScopedQuery(scope);
+
+    if (status) query.status = normalizeText(status);
+    if (campaignType) query.campaignType = normalizeText(campaignType);
+
+    if (month && !year) {
+      return res.status(400).json({
+        success: false,
+        message: 'Year is required when month filter is provided',
+      });
+    }
+
+    if (year) {
+      const createdAtRange = buildCreatedAtDateRange(month, year);
+
+      if (!createdAtRange) {
+        return res.status(400).json({
+          success: false,
+          message: 'Please provide a valid month and year filter',
+        });
+      }
+
+      if (createdAtRange) {
+        query.createdAt = createdAtRange.query;
+      }
+    }
+
+    if (search) {
+      const searchRegex = new RegExp(escapeRegex(search), 'i');
+      query.$or = [
+        { campaignName: searchRegex },
+        { description: searchRegex },
+        { messageContent: searchRegex },
+        { campaignType: searchRegex },
+      ];
+    }
+
+    const campaigns = await BroadcastCampaign.find(query)
+      .populate('selectedContacts', 'name phone email tags status')
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: campaigns.length,
+      campaigns: campaigns.map(formatCampaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/broadcast-campaigns
+ * Create campaign draft or scheduled campaign metadata.
+ */
+exports.createCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const {
+      campaignName,
+      description = '',
+      campaignType = 'marketing',
+      messageFormat = 'text',
+      messageContent = '',
+      mediaUrl = '',
+      mediaName = '',
+      buttons = [],
+      variables = [],
+      recipientsType = 'all_contacts',
+      selectedContacts = [],
+      contactGroup = '',
+      status = 'draft',
+      scheduleAt = null,
+    } = req.body;
+
+    const normalizedCampaignType = normalizeEnumText(campaignType) || 'marketing';
+    const normalizedMessageFormat = normalizeEnumText(messageFormat) || 'text';
+    const normalizedRecipientsType = normalizeEnumText(recipientsType) || 'all_contacts';
+    const normalizedStatus = normalizeEnumText(status) || 'draft';
+
+    if (!normalizeOptionalString(campaignName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Campaign name is required',
+      });
+    }
+
+    const validationError = validateCampaignInput({
+      campaignType: normalizedCampaignType,
+      messageFormat: normalizedMessageFormat,
+      recipientsType: normalizedRecipientsType,
+      status: normalizedStatus,
+    });
+
+    if (validationError) {
+      return res.status(400).json({
+        success: false,
+        message: validationError,
+      });
+    }
+
+    const campaignData = {
+      businessId: scope.businessId,
+      ownerId: scope.ownerId,
+      createdBy: scope.currentUser._id,
+      updatedBy: scope.currentUser._id,
+      campaignName,
+      description,
+      campaignType: normalizedCampaignType,
+      messageFormat: normalizedMessageFormat,
+      messageContent: normalizeOptionalString(messageContent),
+      mediaUrl,
+      mediaName,
+      buttons: normalizeButtons(buttons),
+      variables: normalizeStringArray(variables),
+      recipientsType: normalizedRecipientsType,
+      selectedContacts: normalizeSelectedContacts(selectedContacts),
+      contactGroup: normalizeOptionalString(contactGroup),
+      status: normalizedStatus,
+      scheduleAt: scheduleAt ? new Date(scheduleAt) : null,
+    };
+
+    applyRecipientRules(campaignData);
+    applyMessageFormatRules(campaignData);
+
+    if (campaignData.recipientsType === 'contact_group' && !campaignData.contactGroup) {
+      return res.status(400).json({
+        success: false,
+        message: 'Contact group is required when recipients type is contact_group',
+      });
+    }
+
+    campaignData.estimatedRecipients = await calculateEstimatedRecipients(scope, campaignData);
+
+    const campaign = await BroadcastCampaign.create(campaignData);
+
+    res.status(201).json({
+      success: true,
+      message: 'Broadcast campaign created successfully',
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/broadcast-campaigns/:id
+ * Get single campaign.
+ */
+exports.getCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }))
+      .populate('selectedContacts', 'name phone email tags status');
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/broadcast-campaigns/:id
+ * Update campaign data.
+ */
+exports.updateCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    const { payload, merged } = normalizeCampaignPayload(req.body, campaign.toObject());
+
+    if (payload.campaignName !== undefined && !normalizeOptionalString(payload.campaignName)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Campaign name is required',
+      });
+    }
+
+    if (payload.messageContent !== undefined && !normalizeOptionalString(payload.messageContent)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message content is required',
+      });
+    }
+
+    const validationError = validateCampaignInput({
+      campaignType: payload.campaignType,
+      messageFormat: payload.messageFormat,
+      recipientsType: payload.recipientsType,
+      status: payload.status,
+    });
+
+    if (validationError) {
+      return res.status(400).json({
+        success: false,
+        message: validationError,
+      });
+    }
+
+    Object.assign(campaign, payload);
+    applyRecipientRules(campaign);
+    applyMessageFormatRules(campaign);
+
+    if (campaign.recipientsType === 'contact_group' && !campaign.contactGroup) {
+      return res.status(400).json({
+        success: false,
+        message: 'Contact group is required when recipients type is contact_group',
+      });
+    }
+
+    campaign.updatedBy = scope.currentUser._id;
+    campaign.estimatedRecipients = await calculateEstimatedRecipients(scope, campaign);
+
+    await campaign.save();
+    await campaign.populate('selectedContacts', 'name phone email tags status');
+
+    res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign updated successfully',
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * DELETE /api/broadcast-campaigns/:id
+ * Delete campaign.
+ */
+exports.deleteCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    await campaign.deleteOne();
+
+    res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign deleted successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/broadcast-campaigns/:id/schedule
+ * Schedule a campaign without sending it.
+ */
+exports.scheduleCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    if (!req.body.scheduleAt) {
+      return res.status(400).json({
+        success: false,
+        message: 'Schedule date is required',
+      });
+    }
+
+    const scheduleAt = new Date(req.body.scheduleAt);
+    if (Number.isNaN(scheduleAt.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid schedule date',
+      });
+    }
+
+    campaign.status = 'scheduled';
+    campaign.scheduleAt = scheduleAt;
+    campaign.updatedBy = scope.currentUser._id;
+    campaign.estimatedRecipients = await calculateEstimatedRecipients(scope, campaign);
+
+    await campaign.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign scheduled successfully',
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/broadcast-campaigns/:id/save-draft
+ * Save campaign as draft.
+ */
+exports.saveDraft = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    campaign.status = 'draft';
+    campaign.updatedBy = scope.currentUser._id;
+    await campaign.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign saved as draft',
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PUT /api/broadcast-campaigns/:id/cancel
+ * Cancel campaign.
+ */
+exports.cancelCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
+
+    if (!campaign) {
+      return res.status(404).json({
+        success: false,
+        message: 'Broadcast campaign not found',
+      });
+    }
+
+    campaign.status = 'cancelled';
+    campaign.updatedBy = scope.currentUser._id;
+    await campaign.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign cancelled successfully',
+      campaign: formatCampaign(campaign),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
