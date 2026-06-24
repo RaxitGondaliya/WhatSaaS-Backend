@@ -21,11 +21,4 @@ process.on('unhandledRejection', (err) => {
   console.error(`✗ Unhandled Rejection: ${err.message}`);
   process.exit(1);
 });
-
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    message: "Backend is running"
-  });
-});
+
