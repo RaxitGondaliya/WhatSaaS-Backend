@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const mongoose = require('mongoose');
 const { generateToken } = require('../utils/generateToken');
 const { OAuth2Client } = require('google-auth-library');
 
@@ -27,6 +28,15 @@ exports.signup = async (req, res, next) => {
   try {
     const { fullName, email, password, confirmPassword } = req.body;
 
+    // Debug: log incoming request body
+    console.log("========== SIGNUP DEBUG ==========");
+    console.log("req.body:", JSON.stringify(req.body));
+    console.log("Incoming Email:", email);
+    console.log("Mongo Host:", mongoose.connection.host);
+    console.log("Mongo DB:", mongoose.connection.name);
+    console.log("Mongo Ready State:", mongoose.connection.readyState);
+    console.log("==================================");
+
     // Validation
     if (!fullName || !email || !password || !confirmPassword) {
       return res.status(400).json({
@@ -51,6 +61,8 @@ exports.signup = async (req, res, next) => {
 
     // Check if email already exists
     const existingUser = await User.findOne({ email: email.toLowerCase() });
+    console.log("existingUser result:", existingUser ? "FOUND" : "NOT FOUND");
+
     if (existingUser) {
       return res.status(409).json({
         success: false,
@@ -59,11 +71,13 @@ exports.signup = async (req, res, next) => {
     }
 
     // Create user
+    console.log("Attempting User.create()...");
     const user = await User.create({
       fullName,
       email: email.toLowerCase(),
       password,
     });
+    console.log("User created successfully:", user._id);
 
     // Generate token
     const token = generateToken({ id: user._id });
@@ -82,13 +96,43 @@ exports.signup = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.log("========== SIGNUP ERROR ==========");
+    console.log("Error:", error);
+    console.log("Error code:", error.code);
+    console.log("Error keyValue:", error.keyValue);
+    console.log("==================================");
+
     if (error.code === 11000) {
+      const duplicateField = Object.keys(error.keyPattern || error.keyValue || {})[0] || 'unknown';
+      let errorMessage;
+
+      switch (duplicateField) {
+        case 'email':
+          errorMessage = 'Email already exists';
+          break;
+        case 'username':
+          errorMessage = 'Username already taken (corrupted index — please redeploy to auto-fix)';
+          break;
+        default:
+          errorMessage = `Duplicate value for field: ${duplicateField}`;
+      }
+
       return res.status(409).json({
         success: false,
-        message: 'Email already exists',
+        message: errorMessage,
+        debugInfo: {
+          duplicateField,
+          keyPattern: error.keyPattern,
+          keyValue: error.keyValue,
+        },
       });
     }
-    next(error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+      error: error.toString(),
+    });
   }
 };
 
@@ -100,6 +144,13 @@ exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
+    // Debug: log incoming request
+    console.log("========== LOGIN DEBUG ==========");
+    console.log("Incoming email:", email);
+    console.log("Mongo Host:", mongoose.connection.host);
+    console.log("Mongo DB:", mongoose.connection.name);
+    console.log("=================================");
+
     // Validation
     if (!email || !password) {
       return res.status(400).json({
@@ -110,6 +161,7 @@ exports.login = async (req, res, next) => {
 
     // Find user and include password field
     const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+    console.log("User found in DB:", user ? "YES" : "NO");
 
     if (!user) {
       return res.status(401).json({
@@ -128,6 +180,8 @@ exports.login = async (req, res, next) => {
 
     // Compare password
     const isPasswordCorrect = await user.comparePassword(password);
+    console.log("Password match:", isPasswordCorrect);
+
     if (!isPasswordCorrect) {
       return res.status(401).json({
         success: false,
@@ -160,6 +214,9 @@ exports.login = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.log("========== LOGIN ERROR ==========");
+    console.log("Error:", error);
+    console.log("=================================");
     next(error);
   }
 };

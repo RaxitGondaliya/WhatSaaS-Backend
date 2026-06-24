@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
@@ -9,8 +10,21 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Middleware - CORS
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'development' ? '*' : process.env.FRONTEND_URL,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (e.g., Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
 }));
 
@@ -19,8 +33,36 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Backend is running',
-    database: 'chatbot_saas',
+    database: mongoose.connection.name,
+    host: mongoose.connection.host,
+    readyState: mongoose.connection.readyState,
   });
+});
+
+// Debug Endpoint - Returns actual DB connection details
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    const collections = await mongoose.connection.db.listCollections().toArray();
+    const collectionNames = collections.map(c => c.name);
+
+    // Count users to verify
+    const userCount = await mongoose.connection.db.collection('users').countDocuments();
+
+    res.status(200).json({
+      success: true,
+      database: mongoose.connection.name,
+      host: mongoose.connection.host,
+      readyState: mongoose.connection.readyState,
+      collections: collectionNames,
+      userCount: userCount,
+      mongoUriDatabase: (process.env.MONGO_URI || '').split('?')[0].split('/').pop(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
 });
 
 // Routes
