@@ -45,16 +45,13 @@ exports.verifyWebhook = (req, res) => {
 exports.handleWebhook = (req, res) => {
   const body = req.body;
 
+  console.log(JSON.stringify(body, null, 2));
+  res.sendStatus(200);
+
   // Check the Incoming webhook message
   // info on WhatsApp text message payload: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
   if (body.object === 'whatsapp_business_account') {
-    // Acknowledge receipt to Meta immediately (must respond within 20 seconds, status 200)
-    res.status(200).send('EVENT_RECEIVED');
-
     // Process the payload asynchronously
     whatsappService.processIncomingMessage(body);
-  } else {
-    // Return a '404 Not Found' if event is not from a WhatsApp API
-    res.sendStatus(404);
   }
 };

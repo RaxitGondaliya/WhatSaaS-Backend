@@ -90,7 +90,7 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/chatbot-flows', chatbotFlowRoutes);
 app.use('/api/broadcast-campaigns', broadcastCampaignRoutes);
-app.use('/webhook', webhookRoutes);
+app.use('/api/webhook', webhookRoutes);
 
 // 404 - Not Found Middleware
 app.use((req, res) => {
