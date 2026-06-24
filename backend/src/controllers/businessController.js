@@ -139,7 +139,6 @@ exports.updateBusiness = async (req, res, next) => {
       'ownerName',
       'businessCategory',
       'businessEmail',
-      'whatsappNumber',
       'city',
       'logo',
       'whatsappConnectionStatus',
@@ -218,6 +217,52 @@ exports.updateUsageType = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Usage type updated successfully',
+      business: formatBusiness(business),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/business/whatsapp-number
+ * Update logged-in user's business WhatsApp number securely
+ */
+exports.updateWhatsappNumber = async (req, res, next) => {
+  try {
+    let { whatsappNumber } = req.body;
+
+    if (!whatsappNumber || typeof whatsappNumber !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid WhatsApp number',
+      });
+    }
+
+    whatsappNumber = whatsappNumber.trim();
+    if (whatsappNumber.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'WhatsApp number cannot be empty',
+      });
+    }
+
+    const business = await Business.findOneAndUpdate(
+      { ownerId: req.user.id },
+      { whatsappNumber },
+      { new: true, runValidators: true }
+    );
+
+    if (!business) {
+      return res.status(404).json({
+        success: false,
+        message: 'Business not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'WhatsApp number updated successfully',
       business: formatBusiness(business),
     });
   } catch (error) {
