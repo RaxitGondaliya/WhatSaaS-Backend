@@ -10,6 +10,6 @@ router.post('/setup', businessController.setupBusiness);
 router.get('/my-business', businessController.getMyBusiness);
 router.put('/update', businessController.updateBusiness);
 router.put('/usage-type', businessController.updateUsageType);
-router.patch('/whatsapp-number', businessController.updateWhatsappNumber);
+router.patch('/:businessId', businessController.updateBusinessWhatsapp);
 
 module.exports = router;

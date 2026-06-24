@@ -225,11 +225,12 @@ exports.updateUsageType = async (req, res, next) => {
 };
 
 /**
- * PATCH /api/business/whatsapp-number
- * Update logged-in user's business WhatsApp number securely
+ * PATCH /api/business/:businessId
+ * Update business profile (specifically whatsappNumber)
  */
-exports.updateWhatsappNumber = async (req, res, next) => {
+exports.updateBusinessWhatsapp = async (req, res, next) => {
   try {
+    const { businessId } = req.params;
     let { whatsappNumber } = req.body;
 
     if (!whatsappNumber || typeof whatsappNumber !== 'string') {
@@ -239,7 +240,9 @@ exports.updateWhatsappNumber = async (req, res, next) => {
       });
     }
 
-    whatsappNumber = whatsappNumber.trim();
+    // Ensure proper trimming and remove any accidental escaping like backslashes
+    whatsappNumber = whatsappNumber.trim().replace(/\\/g, '');
+    
     if (whatsappNumber.length === 0) {
       return res.status(400).json({
         success: false,
@@ -247,23 +250,24 @@ exports.updateWhatsappNumber = async (req, res, next) => {
       });
     }
 
+    // Use findByIdAndUpdate to only update the whatsappNumber field securely
+    // We also ensure that the business belongs to the logged-in user
     const business = await Business.findOneAndUpdate(
-      { ownerId: req.user.id },
-      { whatsappNumber },
+      { _id: businessId, ownerId: req.user.id },
+      { $set: { whatsappNumber } },
       { new: true, runValidators: true }
     );
 
     if (!business) {
       return res.status(404).json({
         success: false,
-        message: 'Business not found',
+        message: 'Business not found or you do not have permission',
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'WhatsApp number updated successfully',
-      business: formatBusiness(business),
+      data: formatBusiness(business),
     });
   } catch (error) {
     next(error);
