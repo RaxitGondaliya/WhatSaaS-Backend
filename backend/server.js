@@ -5,16 +5,15 @@ const emailConfig = require('./src/config/email'); // Initialize email config on
 
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
-connectDB();
-
-// Start Server
-app.listen(PORT, () => {
-  console.log(`\n${'='.repeat(50)}`);
-  console.log(`✓ Server running on port ${PORT}`);
-  console.log(`✓ Environment: ${process.env.NODE_ENV}`);
-  console.log(`✓ API Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`${'='.repeat(50)}\n`);
+// Connect to MongoDB and then Start Server
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`✓ Server running on port ${PORT}`);
+    console.log(`✓ Environment: ${process.env.NODE_ENV}`);
+    console.log(`✓ API Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`${'='.repeat(50)}\n`);
+  });
 });
 
 // Handle unhandled promise rejections
