@@ -9,6 +9,12 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Global Request Logger Middleware (DEBUG: Webhook Issue)
+app.use((req, res, next) => {
+  console.log(`[GLOBAL LOG] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // Middleware - CORS
 const allowedOrigins = [
   'http://localhost:3000',
