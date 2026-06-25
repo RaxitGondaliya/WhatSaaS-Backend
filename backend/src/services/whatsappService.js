@@ -95,15 +95,31 @@ class WhatsappService {
    */
   async sendMessage(to, body) {
     try {
-      const token = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
-      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
+      // Load and trim tokens to prevent accidental whitespace/newlines
+      const rawToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
+      const rawPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
+      
+      const token = rawToken ? rawToken.trim() : null;
+      const phoneNumberId = rawPhoneId ? rawPhoneId.trim() : null;
+
+      console.log('\n--- WhatsApp API Pre-Flight Check ---');
+      console.log(`Phone Number ID: ${phoneNumberId ? 'Loaded' : 'Missing'}`);
+      
+      if (token) {
+        // Log masked token for verification
+        const maskedToken = token.length > 15 ? `${token.substring(0, 10)}...${token.substring(token.length - 5)}` : '***';
+        console.log(`Access Token: Loaded (${maskedToken}) - Length: ${token.length}`);
+      } else {
+        console.log(`Access Token: Missing`);
+      }
+      console.log('-------------------------------------\n');
 
       if (!token || !phoneNumberId) {
         console.error("Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID in environment variables.");
         return null;
       }
 
-      // Graph API v22.0 endpoint (can be updated to latest)
+      // Graph API v22.0 endpoint
       const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
       
       const payload = {
@@ -122,7 +138,9 @@ class WhatsappService {
         }
       };
 
-      // Use axios for API calls
+      // Axios logging for debugging
+      console.log(`Sending POST request to: ${url}`);
+      
       const response = await axios.post(url, payload, config);
       
       console.log(`\n--- Outgoing WhatsApp Reply ---`);
@@ -133,11 +151,20 @@ class WhatsappService {
 
       return response.data;
     } catch (error) {
-      console.error("\nFailed to send WhatsApp message:");
+      console.error("\n[Error] Failed to send WhatsApp message:");
       if (error.response) {
-        console.error(JSON.stringify(error.response.data, null, 2));
+        // Detailed Axios error response logging
+        console.error(`Status Code: ${error.response.status}`);
+        console.error('Response Data:', JSON.stringify(error.response.data, null, 2));
+        
+        // Handle expired/invalid token cases specifically
+        if (error.response.data?.error?.code === 190) {
+          console.error(">> ACTION REQUIRED: Your WhatsApp Access Token has expired or is invalid. Please generate a new permanent token from the Meta Developer Dashboard.");
+        }
+      } else if (error.request) {
+        console.error('No response received from Meta API:', error.request);
       } else {
-        console.error(error.message);
+        console.error('Request Setup Error:', error.message);
       }
       return null;
     }
