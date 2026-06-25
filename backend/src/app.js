@@ -84,6 +84,8 @@ const notificationRoutes = require('./routes/notificationRoutes');
 const chatbotFlowRoutes = require('./routes/chatbotFlowRoutes');
 const broadcastCampaignRoutes = require('./routes/broadcastCampaignRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const chatbotSettingsRoutes = require('./routes/chatbotSettingsRoutes');
+const conversationRoutes = require('./routes/conversationRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/business', businessRoutes);
@@ -97,6 +99,8 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/chatbot-flows', chatbotFlowRoutes);
 app.use('/api/broadcast-campaigns', broadcastCampaignRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/chatbot-settings', chatbotSettingsRoutes);
+app.use('/api/conversations', conversationRoutes);
 
 // 404 - Not Found Middleware
 app.use((req, res) => {
