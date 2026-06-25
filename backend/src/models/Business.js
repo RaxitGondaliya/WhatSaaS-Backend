@@ -39,6 +39,16 @@ const businessSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    accessToken: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    chatbotFlowId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ChatbotFlow',
+      default: null,
+    },
     city: {
       type: String,
       trim: true,

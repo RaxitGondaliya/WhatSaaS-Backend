@@ -30,24 +30,33 @@ class ChatbotService {
 
       // 3. Construct the response from the found flow
       if (flow) {
+        console.log(`Flow loaded: ${flow.flowName || (flow.isFallback ? 'Fallback Flow' : 'Dynamic Flow')}`);
+        
+        let replyData = null;
         // Use the new structured schema if available
         if (flow.replyText) {
-          return {
+          replyData = {
             text: flow.replyText,
             buttons: flow.buttons || []
           };
         }
-
         // Legacy support: extract text from nodes array if old schema is used
-        if (flow.nodes && flow.nodes.length > 0) {
+        else if (flow.nodes && flow.nodes.length > 0) {
           for (const node of flow.nodes) {
             if (node.data && node.data.text) {
-              return { text: node.data.text, buttons: [] };
+              replyData = { text: node.data.text, buttons: [] };
+              break;
             }
             if (node.text) {
-              return { text: node.text, buttons: [] };
+              replyData = { text: node.text, buttons: [] };
+              break;
             }
           }
+        }
+
+        if (replyData) {
+          console.log(`Reply generated: "${replyData.text.substring(0, 30)}..."`);
+          return replyData;
         }
       }
 

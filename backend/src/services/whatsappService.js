@@ -53,7 +53,7 @@ class WhatsappService {
           console.log(`From: ${from}`);
           console.log(`Message/Button: ${msg_body}`);
           console.log(`Message ID: ${messageId}`);
-          console.log(`Business: ${business.businessName}`);
+          console.log(`Business found: ${business.businessName}`);
           console.log('---------------------------------\n');
 
           // 1. Find or create conversation
@@ -77,6 +77,7 @@ class WhatsappService {
 
             // 5. Save outgoing message if successfully sent
             if (sentMessageData && sentMessageData.messages && sentMessageData.messages[0]) {
+              console.log('Message sent successfully!');
               const outgoingMessageId = sentMessageData.messages[0].id;
               await conversationService.saveMessage(
                 conversation._id,
