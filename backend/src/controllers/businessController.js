@@ -15,6 +15,10 @@ const formatBusiness = (business) => ({
   customUsageType: business.customUsageType,
   whatsappConnectionStatus: business.whatsappConnectionStatus,
   metaVerificationStatus: business.metaVerificationStatus,
+  phoneNumberId: business.phoneNumberId,
+  whatsappBusinessAccountId: business.whatsappBusinessAccountId,
+  accessToken: business.accessToken,
+  verifyToken: business.verifyToken,
   createdAt: business.createdAt,
   updatedAt: business.updatedAt,
 });
@@ -43,6 +47,10 @@ exports.setupBusiness = async (req, res, next) => {
       city,
       usageType,
       customUsageType,
+      phoneNumberId,
+      whatsappBusinessAccountId,
+      accessToken,
+      verifyToken,
     } = req.body;
 
     if (!businessName || !ownerName || !businessCategory || !whatsappNumber) {
@@ -76,6 +84,10 @@ exports.setupBusiness = async (req, res, next) => {
       businessEmail: businessEmail || null,
       whatsappNumber,
       city: city || null,
+      phoneNumberId: phoneNumberId || null,
+      whatsappBusinessAccountId: whatsappBusinessAccountId || null,
+      accessToken: accessToken || null,
+      verifyToken: verifyToken || null,
     };
 
     if (usageType) {
@@ -143,6 +155,10 @@ exports.updateBusiness = async (req, res, next) => {
       'logo',
       'whatsappConnectionStatus',
       'metaVerificationStatus',
+      'phoneNumberId',
+      'whatsappBusinessAccountId',
+      'accessToken',
+      'verifyToken',
     ];
 
     const updates = {};

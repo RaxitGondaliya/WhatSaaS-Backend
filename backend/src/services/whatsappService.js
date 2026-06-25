@@ -1,7 +1,7 @@
 const axios = require('axios');
 const conversationService = require('./conversationService');
-const chatbotService = require('./chatbotService');
-const Business = require('../models/Business');
+const chatbotEngineService = require('../chatbotEngine/chatbotEngineService');
+const businessService = require('./businessService');
 
 /**
  * Service to handle incoming WhatsApp webhook payloads and sending messages.
@@ -26,10 +26,18 @@ class WhatsappService {
         const from = message.from; // sender phone number
         const messageId = message.id; // Meta message ID
         
-        // Find the business associated with this phone number id
-        const business = await Business.findOne({ phoneNumberId: phone_number_id });
-        if (!business) {
-          console.warn(`\n[Warning] No Business configured for phoneNumberId: ${phone_number_id}. Skipping processing.`);
+        // 1. Multi-Tenant Lookup: Find the specific SaaS business by their WA Phone ID
+        const businessData = await businessService.getBusinessByPhoneId(phone_number_id);
+        if (!businessData) {
+          console.warn(`\n[Warning] No SaaS client configured for phoneNumberId: ${phone_number_id}. Skipping processing.`);
+          return;
+        }
+
+        const { business, whatsappConfig } = businessData;
+
+        // 2. SaaS Chatbot Switch
+        if (!whatsappConfig.chatbotEnabled) {
+          console.log(`[Info] Chatbot is currently disabled for business: ${business.businessName}.`);
           return;
         }
 
@@ -56,10 +64,10 @@ class WhatsappService {
           console.log(`Business found: ${business.businessName}`);
           console.log('---------------------------------\n');
 
-          // 1. Find or create conversation
+          // 3. Find or create conversation state
           const conversation = await conversationService.findOrCreateConversation(from);
 
-          // 2. Save incoming message
+          // Save incoming message
           await conversationService.saveMessage(
             conversation._id,
             from,
@@ -68,17 +76,18 @@ class WhatsappService {
             messageId
           );
 
-          // 3. Generate dynamic reply data using database chatbot flows
-          const replyData = await chatbotService.generateReply(msg_body, business._id);
+          // 4. Generate dynamic reply using the new Chatbot Engine
+          const replyData = await chatbotEngineService.processMessage(msg_body, business, conversation);
 
-          // 4. Send the reply if a flow was found
+          // 5. Send the reply using the specific business's Access Token
           if (replyData) {
-            const sentMessageData = await this.sendMessage(from, replyData, phone_number_id);
+            const sentMessageData = await this.sendMessage(from, replyData, phone_number_id, whatsappConfig.accessToken);
 
-            // 5. Save outgoing message if successfully sent
             if (sentMessageData && sentMessageData.messages && sentMessageData.messages[0]) {
               console.log('Message sent successfully!');
               const outgoingMessageId = sentMessageData.messages[0].id;
+              
+              // Log the outgoing response in DB
               await conversationService.saveMessage(
                 conversation._id,
                 from, 
@@ -114,29 +123,21 @@ class WhatsappService {
    * Send a WhatsApp message using Cloud API
    * @param {string} to - The recipient's phone number
    * @param {Object} replyData - { text, buttons }
-   * @param {string} phoneNumberIdFallback - The ID from webhook to support multi-tenant routing
+   * @param {string} phoneNumberId - The client's specific WhatsApp Phone Number ID
+   * @param {string} businessToken - The client's specific WhatsApp Access Token
    */
-  async sendMessage(to, replyData, phoneNumberIdFallback) {
+  async sendMessage(to, replyData, phoneNumberId, businessToken) {
     try {
-      const rawToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN;
-      const rawPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID || process.env.PHONE_NUMBER_ID;
-      
-      const token = rawToken ? rawToken.trim() : null;
-      // Prioritize webhook payload phone ID for multi-tenant, otherwise fallback to .env global
-      const phoneNumberId = phoneNumberIdFallback || (rawPhoneId ? rawPhoneId.trim() : null);
-
-      if (!token || !phoneNumberId) {
-        console.error("Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID in environment variables.");
+      if (!businessToken || !phoneNumberId) {
+        console.error("Missing Business Access Token or Phone Number ID.");
         return null;
       }
 
       const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
-      
       let payload;
 
       // Construct interactive button payload if buttons exist
       if (replyData.buttons && replyData.buttons.length > 0) {
-        // Meta API only allows a maximum of 3 buttons for an interactive message
         const buttonCount = Math.min(replyData.buttons.length, 3);
         const buttonsPayload = [];
         
@@ -145,7 +146,6 @@ class WhatsappService {
           buttonsPayload.push({
             type: 'reply',
             reply: {
-              // ID must be unique. Title max length is 20 chars.
               id: btn.nextFlowKeyword || btn.text || `btn_${i}`,
               title: btn.text.substring(0, 20) 
             }
@@ -163,7 +163,6 @@ class WhatsappService {
           }
         };
       } else {
-        // Standard text payload
         payload = {
           messaging_product: "whatsapp",
           to: to,
@@ -174,7 +173,7 @@ class WhatsappService {
 
       const config = {
         headers: {
-          "Authorization": `Bearer ${token}`,
+          "Authorization": `Bearer ${businessToken}`,
           "Content-Type": "application/json"
         }
       };

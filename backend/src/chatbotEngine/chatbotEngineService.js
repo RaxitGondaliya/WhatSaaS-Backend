@@ -1,47 +1,47 @@
 const ChatbotFlow = require('../models/ChatbotFlow');
 
-class ChatbotService {
+class ChatbotEngineService {
   /**
-   * Determine the appropriate reply for an incoming message.
-   * @param {string} messageText - The text sent by the user
-   * @param {string} businessId - The ID of the Business receiving the message
-   * @returns {Object|null} The reply object containing { text, buttons } or null if no flow matches
+   * Process an incoming message and generate the next step in the flow.
+   * @param {string} messageText - The user's input text or button reply.
+   * @param {Object} business - The matched Business object.
+   * @param {Object} conversation - The conversation state object.
+   * @returns {Object|null} The reply object containing { text, buttons } or null
    */
-  async generateReply(messageText, businessId) {
+  async processMessage(messageText, business, conversation) {
     try {
       const lowerText = messageText.trim().toLowerCase();
 
-      // 1. Try to match a dynamic chatbot flow for this specific business
+      // 1. Prioritize keyword matching to allow users to jump flows at any time
       let flow = await ChatbotFlow.findOne({
-        businessId: businessId,
+        businessId: business._id,
         status: 'active',
-        // using case-insensitive regex or just direct match since we usually save lowercase keywords
         triggerKeywords: { $in: [lowerText] }
       });
 
-      // 2. If no keyword match, find the fallback flow for this business
+      // 2. If no keyword match, check if we need to progress the current flow state.
+      // (For this version, keyword/button ID matching handles progression seamlessly).
+
+      // 3. Fallback logic if no dynamic flow matches
       if (!flow) {
         flow = await ChatbotFlow.findOne({
-          businessId: businessId,
+          businessId: business._id,
           status: 'active',
           isFallback: true
         });
       }
 
-      // 3. Construct the response from the found flow
+      // 4. Construct the response from the found flow
       if (flow) {
         console.log(`Flow loaded: ${flow.flowName || (flow.isFallback ? 'Fallback Flow' : 'Dynamic Flow')}`);
         
         let replyData = null;
-        // Use the new structured schema if available
         if (flow.replyText) {
           replyData = {
             text: flow.replyText,
             buttons: flow.buttons || []
           };
-        }
-        // Legacy support: extract text from nodes array if old schema is used
-        else if (flow.nodes && flow.nodes.length > 0) {
+        } else if (flow.nodes && flow.nodes.length > 0) {
           for (const node of flow.nodes) {
             if (node.data && node.data.text) {
               replyData = { text: node.data.text, buttons: [] };
@@ -60,9 +60,7 @@ class ChatbotService {
         }
       }
 
-      // 4. No flow matched and no fallback defined in DB. Return null to avoid sending hardcoded messages.
       return null;
-
     } catch (error) {
       console.error('Error fetching chatbot flow from DB:', error);
       return null;
@@ -70,4 +68,4 @@ class ChatbotService {
   }
 }
 
-module.exports = new ChatbotService();
+module.exports = new ChatbotEngineService();

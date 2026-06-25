@@ -17,6 +17,15 @@ const conversationSchema = new mongoose.Schema(
       enum: ['active', 'resolved'],
       default: 'active',
     },
+    currentFlowId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ChatbotFlow',
+      default: null,
+    },
+    lastNodeId: {
+      type: String, // E.g. the trigger keyword or step identifier
+      default: null,
+    },
     lastMessageAt: {
       type: Date,
       default: Date.now,

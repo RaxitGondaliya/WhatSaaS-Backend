@@ -1,6 +1,7 @@
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Business = require('../models/Business');
+const ChatbotSettings = require('../models/ChatbotSettings');
 
 /**
  * GET /api/conversations
@@ -79,10 +80,13 @@ exports.getChatbotAnalytics = async (req, res, next) => {
       status: 'active' 
     });
     
-    const failedReplies = await Message.countDocuments({
+    const buttonClicks = await Message.countDocuments({
       businessId: business._id,
-      status: 'failed'
+      isButtonClick: true
     });
+
+    const chatbotSettings = await ChatbotSettings.findOne({ businessId: business._id });
+    const chatbotStatus = chatbotSettings ? chatbotSettings.isActive : false;
 
     res.status(200).json({
       success: true,
@@ -91,7 +95,8 @@ exports.getChatbotAnalytics = async (req, res, next) => {
         totalMessages,
         autoRepliesSent,
         activeConversations,
-        failedReplies
+        buttonClicks,
+        chatbotStatus
       }
     });
   } catch (error) {

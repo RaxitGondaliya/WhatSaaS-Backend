@@ -30,6 +30,14 @@ const messageSchema = new mongoose.Schema(
       enum: ['sent', 'delivered', 'read', 'failed'],
       default: 'sent',
     },
+    isButtonClick: {
+      type: Boolean,
+      default: false,
+    },
+    businessId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Business',
+    },
   },
   {
     timestamps: true,

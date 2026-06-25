@@ -39,7 +39,17 @@ const businessSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    whatsappBusinessAccountId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     accessToken: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    verifyToken: {
       type: String,
       trim: true,
       default: null,

@@ -11,11 +11,12 @@ const setupWebhookTestBusiness = async () => {
     const Business = require('./src/models/Business');
     const User = require('./src/models/User');
     const ChatbotFlow = require('./src/models/ChatbotFlow');
+    const WhatsAppConfig = require('./src/models/WhatsAppConfig');
 
     const testPhoneId = '1082933148246856';
-    const business = await Business.findOne({ phoneNumberId: testPhoneId });
+    const existingConfig = await WhatsAppConfig.findOne({ phoneNumberId: testPhoneId });
 
-    if (!business) {
+    if (!existingConfig) {
       console.log(`\n--- Seeding Test Business Data for Webhook ---`);
       
       // Find or create dummy user
@@ -38,11 +39,20 @@ const setupWebhookTestBusiness = async () => {
         ownerName: 'Webhook Test',
         businessCategory: 'IT Services',
         whatsappNumber: '1234567890',
-        phoneNumberId: testPhoneId,
         usageType: 'services'
       });
 
       console.log(`✓ Created test Business: ${newBusiness.businessName}`);
+
+      const WhatsAppConfig = require('./src/models/WhatsAppConfig');
+      await WhatsAppConfig.create({
+        businessId: newBusiness._id,
+        phoneNumberId: testPhoneId,
+        accessToken: process.env.WHATSAPP_ACCESS_TOKEN || 'your-meta-access-token-here',
+        chatbotEnabled: true,
+      });
+
+      console.log(`✓ Created test WhatsAppConfig for multi-tenant isolation`);
 
       // Seed dummy flows to match the required test scenario
       await ChatbotFlow.create([
