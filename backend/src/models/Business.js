@@ -34,6 +34,11 @@ const businessSchema = new mongoose.Schema(
       required: [true, 'WhatsApp number is required'],
       trim: true,
     },
+    phoneNumberId: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     city: {
       type: String,
       trim: true,

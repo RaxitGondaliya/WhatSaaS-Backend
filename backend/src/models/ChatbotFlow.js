@@ -42,6 +42,25 @@ const chatbotFlowSchema = new mongoose.Schema(
       },
       default: 'draft',
     },
+    replyText: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    buttons: [{
+      text: {
+        type: String,
+        trim: true,
+      },
+      nextFlowKeyword: {
+        type: String,
+        trim: true,
+      }
+    }],
+    isFallback: {
+      type: Boolean,
+      default: false,
+    },
     nodes: {
       type: [mongoose.Schema.Types.Mixed],
       default: [],

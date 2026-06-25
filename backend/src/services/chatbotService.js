@@ -4,51 +4,59 @@ class ChatbotService {
   /**
    * Determine the appropriate reply for an incoming message.
    * @param {string} messageText - The text sent by the user
-   * @returns {string} The reply text
+   * @param {string} businessId - The ID of the Business receiving the message
+   * @returns {Object|null} The reply object containing { text, buttons } or null if no flow matches
    */
-  async generateReply(messageText) {
+  async generateReply(messageText, businessId) {
     try {
       const lowerText = messageText.trim().toLowerCase();
 
-      // 1. Try to match a dynamic chatbot flow from the database
-      // This looks for an active flow where the triggerKeywords array contains the message text
-      const matchingFlow = await ChatbotFlow.findOne({
+      // 1. Try to match a dynamic chatbot flow for this specific business
+      let flow = await ChatbotFlow.findOne({
+        businessId: businessId,
         status: 'active',
+        // using case-insensitive regex or just direct match since we usually save lowercase keywords
         triggerKeywords: { $in: [lowerText] }
       });
 
-      if (matchingFlow && matchingFlow.nodes && matchingFlow.nodes.length > 0) {
-        // Attempt to extract text from the nodes array structure
-        // This assumes a generic structure like { data: { text: 'reply' } } or { text: 'reply' }
-        // Depending on how frontend saves the React Flow / Node-RED style nodes.
-        for (const node of matchingFlow.nodes) {
-          if (node.data && node.data.text) {
-            return node.data.text;
-          }
-          if (node.text) {
-            return node.text;
+      // 2. If no keyword match, find the fallback flow for this business
+      if (!flow) {
+        flow = await ChatbotFlow.findOne({
+          businessId: businessId,
+          status: 'active',
+          isFallback: true
+        });
+      }
+
+      // 3. Construct the response from the found flow
+      if (flow) {
+        // Use the new structured schema if available
+        if (flow.replyText) {
+          return {
+            text: flow.replyText,
+            buttons: flow.buttons || []
+          };
+        }
+
+        // Legacy support: extract text from nodes array if old schema is used
+        if (flow.nodes && flow.nodes.length > 0) {
+          for (const node of flow.nodes) {
+            if (node.data && node.data.text) {
+              return { text: node.data.text, buttons: [] };
+            }
+            if (node.text) {
+              return { text: node.text, buttons: [] };
+            }
           }
         }
       }
 
-      // 2. Basic Chatbot Logic (Fallback to hardcoded rules if no dynamic flow matched or no text found)
-      switch (lowerText) {
-        case 'hi':
-        case 'hello':
-          return 'Welcome to our service! How can we help you today?';
-        case 'price':
-        case 'pricing':
-          return 'Our pricing plans start at $9/month. Reply "help" to speak with a representative for a custom quote.';
-        case 'help':
-        case 'support':
-          return 'Support Info: Please visit our support center at https://support.example.com or reply with your query.';
-        default:
-          return 'Sorry, I did not understand that. You can type "hi", "price", or "help" for more options.';
-      }
+      // 4. No flow matched and no fallback defined in DB. Return null to avoid sending hardcoded messages.
+      return null;
 
     } catch (error) {
-      console.error('Error generating chatbot reply:', error);
-      return 'We are currently experiencing technical difficulties. Please try again later.';
+      console.error('Error fetching chatbot flow from DB:', error);
+      return null;
     }
   }
 }
