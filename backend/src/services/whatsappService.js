@@ -64,40 +64,48 @@ class WhatsappService {
           console.log(`Business found: ${business.businessName}`);
           console.log('---------------------------------\n');
 
-          // 3. Find or create conversation state
-          const conversation = await conversationService.findOrCreateConversation(from);
+          try {
+            // 3. Find or create conversation state
+            const conversation = await conversationService.findOrCreateConversation(from);
 
-          // Save incoming message
-          await conversationService.saveMessage(
-            conversation._id,
-            from,
-            msg_body,
-            'incoming',
-            messageId
-          );
+            // Save incoming message
+            await conversationService.saveMessage(
+              conversation._id,
+              from,
+              msg_body,
+              'incoming',
+              messageId
+            );
 
-          // 4. Generate dynamic reply using the new Chatbot Engine
-          const replyData = await chatbotEngineService.processMessage(msg_body, business, conversation);
+            // 4. Generate dynamic reply using the new Chatbot Engine
+            console.log('Generating reply from DB...');
+            const replyData = await chatbotEngineService.processMessage(msg_body, business, conversation);
 
-          // 5. Send the reply using the specific business's Access Token
-          if (replyData) {
-            const sentMessageData = await this.sendMessage(from, replyData, phone_number_id, whatsappConfig.accessToken);
+            // 5. Send the reply using the specific business's Access Token
+            if (replyData) {
+              console.log('[DEBUG] Sending WhatsApp reply...');
+              const sentMessageData = await this.sendMessage(from, replyData, phone_number_id, whatsappConfig.accessToken);
 
-            if (sentMessageData && sentMessageData.messages && sentMessageData.messages[0]) {
-              console.log('Message sent successfully!');
-              const outgoingMessageId = sentMessageData.messages[0].id;
-              
-              // Log the outgoing response in DB
-              await conversationService.saveMessage(
-                conversation._id,
-                from, 
-                replyData.text,
-                'outgoing',
-                outgoingMessageId
-              );
+              if (sentMessageData && sentMessageData.messages && sentMessageData.messages[0]) {
+                console.log('[SUCCESS] WhatsApp reply sent.');
+                const outgoingMessageId = sentMessageData.messages[0].id;
+                
+                // Log the outgoing response in DB
+                await conversationService.saveMessage(
+                  conversation._id,
+                  from, 
+                  replyData.text,
+                  'outgoing',
+                  outgoingMessageId
+                );
+              } else {
+                console.error('[Error] Failed to send WhatsApp reply, no message ID returned.');
+              }
+            } else {
+              console.log(`No active DB flow matched "${msg_body}" for ${business.businessName} and no fallback found. No reply sent.`);
             }
-          } else {
-            console.log(`No active DB flow matched "${msg_body}" for ${business.businessName} and no fallback found. No reply sent.`);
+          } catch (err) {
+            console.error('\n[Error] Failed during message processing, flow, or sending:', err);
           }
         }
       } else {
