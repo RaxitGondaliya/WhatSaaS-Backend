@@ -43,6 +43,7 @@ class BusinessService {
           console.log(`✓ business created`);
 
           config = await WhatsAppConfig.create({
+            ownerId: user._id,
             businessId: business._id,
             phoneNumberId: phoneNumberId,
             accessToken: process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_TOKEN || 'dummy-token',

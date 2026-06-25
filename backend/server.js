@@ -46,6 +46,7 @@ const setupWebhookTestBusiness = async () => {
 
       const WhatsAppConfig = require('./src/models/WhatsAppConfig');
       await WhatsAppConfig.create({
+        ownerId: user._id,
         businessId: newBusiness._id,
         phoneNumberId: testPhoneId,
         accessToken: process.env.WHATSAPP_ACCESS_TOKEN || 'your-meta-access-token-here',

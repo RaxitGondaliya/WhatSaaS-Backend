@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 
 const whatsappConfigSchema = new mongoose.Schema(
   {
+    ownerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: [true, 'Owner ID is required'],
+    },
     businessId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Business',
@@ -13,6 +18,16 @@ const whatsappConfigSchema = new mongoose.Schema(
       required: [true, 'Phone Number ID is required'],
       unique: true,
       trim: true,
+    },
+    displayPhoneNumber: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    wabaId: {
+      type: String,
+      trim: true,
+      default: null,
     },
     whatsappBusinessAccountId: {
       type: String,
