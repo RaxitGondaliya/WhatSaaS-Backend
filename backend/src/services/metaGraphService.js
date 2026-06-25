@@ -37,6 +37,38 @@ class MetaGraphService {
   }
 
   /**
+   * Exchanges an OAuth authorization code for an access token.
+   * @param {string} code 
+   * @param {string} redirectUri 
+   * @returns {string|null} access token
+   */
+  async exchangeCodeForToken(code, redirectUri) {
+    try {
+      const appId = process.env.META_APP_ID;
+      const appSecret = process.env.META_APP_SECRET;
+
+      if (!appId || !appSecret) {
+        console.error('[MetaGraphService] Missing META_APP_ID or META_APP_SECRET for OAuth flow.');
+        return null;
+      }
+
+      const response = await axios.get(`${this.baseUrl}/oauth/access_token`, {
+        params: {
+          client_id: appId,
+          client_secret: appSecret,
+          redirect_uri: redirectUri,
+          code: code,
+        },
+      });
+
+      return response.data.access_token;
+    } catch (error) {
+      console.error('[MetaGraphService] Error exchanging OAuth code:', error.response?.data || error.message);
+      return null;
+    }
+  }
+
+  /**
    * Fetches the user's WhatsApp Business Accounts (WABAs) and their phone numbers.
    * In a real Embedded Signup flow, you often get a code that exchanges for an access token,
    * then query the user's businesses.
