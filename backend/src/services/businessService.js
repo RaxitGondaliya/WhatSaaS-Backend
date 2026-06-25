@@ -19,25 +19,27 @@ class BusinessService {
       if (!config || !business) {
         console.log(`\n[Info] Auto-creating SaaS client for phoneNumberId: ${phoneNumberId}`);
         
-        let user = await User.findOne({ email: 'autotest@example.com' });
+        const testEmail = `testclient_${phoneNumberId}@whatsaas.local`;
+        let user = await User.findOne({ email: testEmail });
         if (!user) {
           user = await User.create({
-            firstName: 'Auto',
-            lastName: 'Test',
-            email: 'autotest@example.com',
+            fullName: 'WhatsApp Test Client',
+            email: testEmail,
             password: 'password123',
             role: 'owner',
           });
+          console.log(`✓ SaaS client created (User)`);
         }
 
         business = await Business.create({
           ownerId: user._id,
           businessName: 'Auto-Created Test Business',
-          ownerName: 'Auto Test',
+          ownerName: 'WhatsApp Test Client',
           businessCategory: 'IT Services',
           whatsappNumber: '1234567890',
           usageType: 'services'
         });
+        console.log(`✓ business created`);
 
         config = await WhatsAppConfig.create({
           businessId: business._id,
@@ -83,7 +85,8 @@ class BusinessService {
           }
         ]);
         
-        console.log(`✓ Auto-created SaaS client successfully!`);
+        console.log(`✓ chatbot flow created`);
+        console.log(`✓ webhook processing started`);
       }
 
       console.log(`Loaded business successfully: ${business.businessName}`);
