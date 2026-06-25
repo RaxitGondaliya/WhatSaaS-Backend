@@ -15,21 +15,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// Enable trust proxy for Render deployment (important for HTTPS/cookies)
+app.set('trust proxy', 1);
+
 // Middleware - CORS
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
-  process.env.FRONTEND_URL,
+  process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, '') : null
 ].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (e.g., Postman, server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+
+    // Remove trailing slash from incoming origin if exists for safe matching
+    const cleanOrigin = origin.replace(/\/$/, '');
+    
+    if (allowedOrigins.includes(cleanOrigin) || process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
-    return callback(new Error('Not allowed by CORS'));
+    
+    // If we're on Render and struggling with CORS, we can log it here to help debug
+    console.warn(`[CORS Blocked] Origin: ${origin}`);
+    // Instead of throwing an error which might crash unhandled, return false
+    return callback(null, false);
   },
   credentials: true,
 }));
@@ -89,6 +100,8 @@ const conversationRoutes = require('./routes/conversationRoutes');
 const metaRoutes = require('./routes/metaRoutes');
 
 app.use('/api/auth', authRoutes);
+app.use('/api', authRoutes); // Fallback alias for /api/signup and /api/login
+
 app.use('/api/business', businessRoutes);
 app.use('/api/team-members', teamRoutes);
 app.use('/api/contacts', contactRoutes);
