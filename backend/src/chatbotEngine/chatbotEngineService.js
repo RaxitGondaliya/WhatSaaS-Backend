@@ -18,9 +18,17 @@ class ChatbotEngineService {
         status: 'active',
         triggerKeywords: { $in: [lowerText] }
       });
+      let matchReason = 'keyword';
 
-      // 2. If no keyword match, check if we need to progress the current flow state.
-      // (For this version, keyword/button ID matching handles progression seamlessly).
+      // 2. If no keyword match, check if we have an 'any' or 'both' trigger flow
+      if (!flow) {
+        flow = await ChatbotFlow.findOne({
+          businessId: business._id,
+          status: 'active',
+          triggerType: { $in: ['any', 'both'] }
+        });
+        matchReason = 'any/both';
+      }
 
       // 3. Fallback logic if no dynamic flow matches
       if (!flow) {
@@ -29,11 +37,17 @@ class ChatbotEngineService {
           status: 'active',
           isFallback: true
         });
+        matchReason = 'fallback';
       }
 
       // 4. Construct the response from the found flow
       if (flow) {
-        console.log(`Flow loaded: ${flow.flowName || (flow.isFallback ? 'Fallback Flow' : 'Dynamic Flow')}`);
+        console.log(`\nMatched flow: ${flow.flowName || flow._id}`);
+        console.log(`triggerType: ${flow.triggerType}`);
+        console.log(`triggerKeywords: ${JSON.stringify(flow.triggerKeywords || [])}`);
+        console.log(`matched flow id: ${flow._id}`);
+        console.log(`reason flow matched: ${matchReason}`);
+        console.log(`Generating WhatsApp reply...`);
         
         let replyData = null;
         if (flow.replyText) {
