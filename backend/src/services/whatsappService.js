@@ -144,40 +144,53 @@ class WhatsappService {
       const url = `https://graph.facebook.com/v22.0/${phoneNumberId}/messages`;
       let payload;
 
-      // Construct interactive button payload if buttons exist
-      if (replyData.buttons && replyData.buttons.length > 0) {
-        const buttonCount = Math.min(replyData.buttons.length, 3);
+      // Construct interactive button payload if buttons exist or it's a Button Message
+      if (replyData.type === 'Button Message' || (replyData.buttons && replyData.buttons.length > 0)) {
+        const buttons = replyData.buttons || [];
+        const buttonCount = Math.min(buttons.length, 3);
         const buttonsPayload = [];
         
         for (let i = 0; i < buttonCount; i++) {
-          const btn = replyData.buttons[i];
+          const btn = buttons[i];
           buttonsPayload.push({
             type: 'reply',
             reply: {
-              id: btn.nextFlowKeyword || btn.text || `btn_${i}`,
-              title: btn.text.substring(0, 20) 
+              id: String(btn.nextMessageId || btn.id || btn.nextFlowKeyword || btn.text || `btn_${i}`),
+              title: (btn.text || `Option ${i + 1}`).substring(0, 20) 
             }
           });
         }
 
-        payload = {
-          messaging_product: "whatsapp",
-          to: to,
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text: replyData.text },
-            action: { buttons: buttonsPayload }
-          }
-        };
+        if (buttonsPayload.length > 0) {
+          payload = {
+            messaging_product: "whatsapp",
+            to: to,
+            type: "interactive",
+            interactive: {
+              type: "button",
+              body: { text: replyData.text || 'Please select an option:' },
+              action: { buttons: buttonsPayload }
+            }
+          };
+        } else {
+          // Fallback if no buttons found despite type
+          payload = {
+            messaging_product: "whatsapp",
+            to: to,
+            type: "text",
+            text: { body: replyData.text || 'No options available.' }
+          };
+        }
       } else {
         payload = {
           messaging_product: "whatsapp",
           to: to,
           type: "text",
-          text: { body: replyData.text }
+          text: { body: replyData.text || '' }
         };
       }
+
+      console.log(`\n[DEBUG] generated payload:`, JSON.stringify(payload, null, 2));
 
       const config = {
         headers: {
@@ -189,6 +202,7 @@ class WhatsappService {
       console.log(`Sending POST request to: ${url}`);
       const response = await axios.post(url, payload, config);
       
+      console.log(`\n[DEBUG] WhatsApp API response:`, JSON.stringify(response.data, null, 2));
       console.log(`\n--- Outgoing WhatsApp Reply ---`);
       console.log(`To: ${to}`);
       console.log(`Message Type: ${payload.type}`);

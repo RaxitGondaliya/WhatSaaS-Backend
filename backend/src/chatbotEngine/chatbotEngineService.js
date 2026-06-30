@@ -38,24 +38,28 @@ class ChatbotEngineService {
         let replyData = null;
         if (flow.replyText) {
           replyData = {
+            type: 'Text',
             text: flow.replyText,
             buttons: flow.buttons || []
           };
         } else if (flow.nodes && flow.nodes.length > 0) {
           for (const node of flow.nodes) {
-            if (node.data && node.data.text) {
-              replyData = { text: node.data.text, buttons: [] };
-              break;
-            }
-            if (node.text) {
-              replyData = { text: node.text, buttons: [] };
+            if (node.text || (node.buttons && node.buttons.length > 0)) {
+              console.log(`\n[DEBUG] loaded node:`, JSON.stringify({ id: node.id, type: node.type, text: node.text }));
+              console.log(`[DEBUG] loaded buttons:`, JSON.stringify(node.buttons || []));
+              
+              replyData = { 
+                type: node.type || 'Text',
+                text: node.text || '', 
+                buttons: node.buttons || [] 
+              };
               break;
             }
           }
         }
 
         if (replyData) {
-          console.log(`Reply generated: "${replyData.text.substring(0, 30)}..."`);
+          console.log(`Reply generated: type="${replyData.type}", text="${(replyData.text || '').substring(0, 30)}...", buttons=${replyData.buttons.length}`);
           return replyData;
         }
       }
