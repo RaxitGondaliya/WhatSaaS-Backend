@@ -5,21 +5,20 @@ class ChatbotEngineService {
     try {
       console.log("DEBUG: Processing message from:", conversation?.phoneNumber || 'Unknown', "Body:", messageText, "Business:", business._id);
 
-      const lowerText = messageText.trim().toLowerCase();
+      const cleanText = messageText.trim().toLowerCase();
       let flow = null;
       let matchReason = '';
       let targetNode = null;
       let sessionAction = null;
 
+      const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
+
       // Check if the user explicitly typed a global trigger keyword (this overrides active sessions)
       let globalKeywordFlow = null;
       if (!triggerId) {
-        const escapeRegex = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const normalizedMsg = escapeRegex(messageText.trim().replace(/\s+/g, ' '));
-        globalKeywordFlow = await ChatbotFlow.findOne({ 
-           businessId: business._id, 
-           status: 'active', 
-           triggerKeywords: { $regex: new RegExp(`^${normalizedMsg}$`, 'i') } 
+        globalKeywordFlow = activeFlows.find(f => {
+           const isKeyword = String(f.triggerType).toLowerCase() === 'keywords' || String(f.triggerType).toLowerCase() === 'both';
+           return isKeyword && (f.triggerKeywords || []).map(k => k.toLowerCase().trim()).includes(cleanText);
         });
       }
 
@@ -109,12 +108,7 @@ class ChatbotEngineService {
            console.log(`[DEBUG] Global trigger found for "${messageText}". Clearing existing session.`);
         }
       } else if (triggerId) {
-        flow = await ChatbotFlow.findOne({
-           businessId: business._id,
-           status: 'active',
-           'nodes.triggerType': 'button_click',
-           'nodes.triggerId': String(triggerId).trim()
-        });
+        flow = activeFlows.find(f => f.nodes && f.nodes.some(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim()));
         if (flow) {
           matchReason = 'button_click';
         } else {
@@ -123,17 +117,13 @@ class ChatbotEngineService {
         }
       }
 
-      if (!flow) {
-        flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $regex: /^(any|both)$/i } });
+      if (!flow && !triggerId) {
+        flow = activeFlows.find(f => String(f.triggerType).toLowerCase() === 'any' || String(f.triggerType).toLowerCase() === 'both');
         if (flow) {
           matchReason = 'any/both';
         } else {
-          flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', isFallback: true });
+          flow = activeFlows.find(f => f.isFallback === true);
           if (flow) matchReason = 'fallback_explicit';
-          else {
-            flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $regex: /^any$/i } });
-            if (flow) matchReason = 'fallback_any';
-          }
         }
       }
 
@@ -162,8 +152,16 @@ class ChatbotEngineService {
             targetNode = flow.nodes.find(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim());
           }
           if (!targetNode) {
-             // Default to the first message in the list
-            targetNode = flow.nodes.find(n => n.text || (n.buttons && n.buttons.length > 0));
+             // START NODE SELECTION
+             // The start node is the node that has NO incoming edges (no edge where edge.target === node.id).
+             if (flow.edges && flow.edges.length > 0) {
+                const targetIds = new Set(flow.edges.map(e => String(e.target)));
+                targetNode = flow.nodes.find(n => !targetIds.has(String(n.id)));
+             }
+             // Fallback if no edges or manual list: just pick the first node
+             if (!targetNode) {
+                targetNode = flow.nodes[0];
+             }
           }
 
           if (targetNode) {
