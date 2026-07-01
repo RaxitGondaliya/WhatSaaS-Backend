@@ -117,23 +117,34 @@ const buildScopedQuery = (scope, extra = {}) => ({
   ...extra,
 });
 
-const formatFlow = (flow) => ({
-  _id: flow._id,
-  businessId: flow.businessId,
-  ownerId: flow.ownerId,
-  flowName: flow.flowName,
-  description: flow.description,
-  triggerKeywords: flow.triggerKeywords,
-  triggerType: flow.triggerType,
-  status: flow.status,
-  nodes: flow.nodes,
-  edges: flow.edges,
-  settings: flow.settings,
-  createdBy: flow.createdBy,
-  updatedBy: flow.updatedBy,
-  createdAt: flow.createdAt,
-  updatedAt: flow.updatedAt,
-});
+const formatFlow = (flow) => {
+  const flowObj = flow.toObject ? flow.toObject() : flow;
+  
+  const nodes = (flowObj.nodes || []).map(node => {
+    if (!node.position) {
+      node.position = { x: 0, y: 0 };
+    }
+    return node;
+  });
+
+  return {
+    _id: flowObj._id,
+    businessId: flowObj.businessId,
+    ownerId: flowObj.ownerId,
+    flowName: flowObj.flowName,
+    description: flowObj.description,
+    triggerKeywords: flowObj.triggerKeywords,
+    triggerType: flowObj.triggerType,
+    status: flowObj.status,
+    nodes: nodes,
+    edges: flowObj.edges,
+    settings: flowObj.settings,
+    createdBy: flowObj.createdBy,
+    updatedBy: flowObj.updatedBy,
+    createdAt: flowObj.createdAt,
+    updatedAt: flowObj.updatedAt,
+  };
+};
 
 const deactivateOtherFlows = async (scope, flowId) => {
   await ChatbotFlow.updateMany(
