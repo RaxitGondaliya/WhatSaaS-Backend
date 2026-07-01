@@ -2,6 +2,7 @@ const axios = require('axios');
 const conversationService = require('./conversationService');
 const chatbotEngineService = require('../chatbotEngine/chatbotEngineService');
 const businessService = require('./businessService');
+const ChatSession = require('../models/ChatSession');
 
 /**
  * Service to handle incoming WhatsApp webhook payloads and sending messages.
@@ -82,9 +83,34 @@ class WhatsappService {
               messageId
             );
 
+            // 3.5 Check for active ChatSession
+            const chatSession = await ChatSession.findOne({ phoneNumber: from, businessId: business._id });
+
             // 4. Generate dynamic reply using the new Chatbot Engine
             console.log('Generating reply from DB...');
-            const replyData = await chatbotEngineService.processMessage(msg_body, triggerId, business, conversation);
+            const replyData = await chatbotEngineService.processMessage(msg_body, triggerId, business, conversation, chatSession);
+
+            if (replyData && replyData.sessionAction) {
+              const action = replyData.sessionAction;
+              if (action.type === 'create') {
+                 await ChatSession.create({
+                   phoneNumber: from,
+                   businessId: business._id,
+                   currentFlowId: action.flowId,
+                   currentNodeId: action.currentNodeId,
+                   variables: {}
+                 });
+                 console.log(`[Session] Created new session for ${from}`);
+              } else if (action.type === 'update' && chatSession) {
+                 chatSession.currentNodeId = action.currentNodeId || chatSession.currentNodeId;
+                 chatSession.variables = action.variables;
+                 await chatSession.save();
+                 console.log(`[Session] Updated session for ${from}`);
+              } else if (action.type === 'delete' && chatSession) {
+                 await ChatSession.deleteOne({ _id: chatSession._id });
+                 console.log(`[Session] Deleted session for ${from}`);
+              }
+            }
 
             // 5. Send the reply using the specific business's Access Token
             if (replyData) {
