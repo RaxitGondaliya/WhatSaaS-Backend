@@ -16,7 +16,54 @@ class ChatbotEngineService {
       let targetNode = null;
       let sessionAction = null;
 
-      // PRIORITY 1: New Flow Trigger (Keyword / Any / Button)
+      // PRIORITY 1: Session Continuity (Strictly skip other triggers if session is active)
+      if (chatSession && chatSession.currentNodeId) {
+        const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
+        if (sessionFlow && sessionFlow.nodes) {
+          const currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
+          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.variable)) {
+            const varName = currentNode.variable || 'answer';
+            
+            sessionAction = { type: 'update', variables: { ...(chatSession.variables || {}) } };
+            sessionAction.variables[varName] = messageText;
+
+            let nextNodeId = currentNode.nextMessageId;
+            if (!nextNodeId && sessionFlow.edges) {
+               const edge = sessionFlow.edges.find(e => String(e.source) === String(currentNode.id));
+               if (edge) nextNodeId = edge.target;
+            }
+
+            if (nextNodeId) {
+               targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
+               if (targetNode) {
+                  sessionAction.currentNodeId = nextNodeId;
+                  
+                  // Construct response immediately
+                  let replyData = { 
+                    type: targetNode.type || 'Text',
+                    text: targetNode.text || '', 
+                    buttons: targetNode.buttons || [] 
+                  };
+
+                  if (targetNode.type !== 'Ask Question' && !targetNode.variable) {
+                    sessionAction.type = 'delete'; // Completed the multi-step flow questions
+                  }
+
+                  replyData.sessionAction = sessionAction;
+                  console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
+                  return replyData;
+               }
+            }
+          }
+        }
+        
+        // If we reach here, it means we couldn't find a next node (flow complete) or invalid state.
+        // We MUST complete the session and stop execution to prevent fallback loops.
+        console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
+        return { type: 'NoReply', sessionAction: { type: 'delete' } };
+      }
+
+      // PRIORITY 2: New Flow Trigger (Keyword / Any / Button)
       if (triggerId) {
         flow = await ChatbotFlow.findOne({
           businessId: business._id,
@@ -45,50 +92,6 @@ class ChatbotEngineService {
             triggerType: { $in: ['any', 'both'] }
           });
           if (flow) matchReason = 'any/both';
-        }
-      }
-
-      if (flow && chatSession) {
-        // If a new explicit trigger matches, delete the existing session to ensure a fresh start
-        sessionAction = { type: 'delete' };
-      }
-
-      // PRIORITY 2: Session Continuity (If no new flow is triggered)
-      if (!flow && chatSession && chatSession.currentNodeId) {
-        const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
-        if (sessionFlow && sessionFlow.nodes) {
-          const currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
-          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.variable)) {
-            const varName = currentNode.variable || 'answer';
-            
-            sessionAction = { type: 'update', variables: { ...(chatSession.variables || {}) } };
-            sessionAction.variables[varName] = messageText;
-
-            let nextNodeId = currentNode.nextMessageId;
-            if (!nextNodeId && sessionFlow.edges) {
-               const edge = sessionFlow.edges.find(e => String(e.source) === String(currentNode.id));
-               if (edge) nextNodeId = edge.target;
-            }
-
-            if (nextNodeId) {
-               targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
-               if (targetNode) {
-                  sessionAction.currentNodeId = nextNodeId;
-               } else {
-                  sessionAction.type = 'delete';
-               }
-            } else {
-               sessionAction.type = 'delete';
-            }
-          }
-        }
-        
-        if (targetNode) {
-          flow = sessionFlow;
-          matchReason = 'session_continuation';
-        } else {
-          console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
-          return { type: 'NoReply', sessionAction: sessionAction || { type: 'delete' } };
         }
       }
 
