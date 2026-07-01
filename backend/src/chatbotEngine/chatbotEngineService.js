@@ -101,6 +101,7 @@ class ChatbotEngineService {
           if (flow) matchReason = 'fallback';
         }
       }
+      }
 
       // 4. Construct the response from the found flow
       if (flow) {
