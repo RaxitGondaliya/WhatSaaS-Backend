@@ -16,8 +16,31 @@ class ChatbotEngineService {
       let targetNode = null;
       let sessionAction = null;
 
-      // PRIORITY 1: Session Continuity (Strictly skip other triggers if session is active)
-      if (chatSession && chatSession.currentNodeId) {
+      console.log(`Searching for flow. Message: ${messageText}`);
+      const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
+
+      // 1. Check for Explicit Triggers (Button / Keyword)
+      if (triggerId) {
+        flow = activeFlows.find(f => f.nodes && f.nodes.some(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim()));
+        if (flow) {
+          matchReason = 'button_click';
+        } else {
+          console.log(`[DEBUG] No matching button flow found for triggerId: ${triggerId}. Halting fallback.`);
+          return null;
+        }
+      } else {
+        // Check keywords
+        flow = activeFlows.find(f => f.triggerKeywords && f.triggerKeywords.some(k => k.trim().toLowerCase() === lowerText));
+        if (flow) matchReason = 'keyword';
+      }
+
+      // If an explicit trigger matched, we break out of any active session
+      if (flow && chatSession) {
+        sessionAction = { type: 'delete' };
+      }
+
+      // 2. Session Continuity
+      if (!flow && chatSession && chatSession.currentNodeId) {
         const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
         if (sessionFlow && sessionFlow.nodes) {
           const currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
@@ -38,7 +61,6 @@ class ChatbotEngineService {
                if (targetNode) {
                   sessionAction.currentNodeId = nextNodeId;
                   
-                  // Construct response immediately
                   let replyData = { 
                     type: targetNode.type || 'Text',
                     text: targetNode.text || '', 
@@ -46,7 +68,7 @@ class ChatbotEngineService {
                   };
 
                   if (targetNode.type !== 'Ask Question' && !targetNode.variable) {
-                    sessionAction.type = 'delete'; // Completed the multi-step flow questions
+                    sessionAction.type = 'delete';
                   }
 
                   replyData.sessionAction = sessionAction;
@@ -57,52 +79,23 @@ class ChatbotEngineService {
           }
         }
         
-        // If we reach here, it means we couldn't find a next node (flow complete) or invalid state.
-        // We MUST complete the session and stop execution to prevent fallback loops.
         console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
         return { type: 'NoReply', sessionAction: { type: 'delete' } };
       }
 
-      // PRIORITY 2: New Flow Trigger (Keyword / Any / Button)
-      if (triggerId) {
-        flow = await ChatbotFlow.findOne({
-          businessId: business._id,
-          status: 'active',
-          'nodes.triggerType': 'button_click',
-          'nodes.triggerId': String(triggerId).trim()
-        });
-        if (flow) {
-          matchReason = 'button_click';
-        } else {
-          console.log(`[DEBUG] No matching button flow found for triggerId: ${triggerId}. Halting fallback.`);
-          return null;
-        }
-      } else {
-        flow = await ChatbotFlow.findOne({
-          businessId: business._id,
-          status: 'active',
-          triggerKeywords: { $in: [lowerText] }
-        });
-        if (flow) matchReason = 'keyword';
-
-        if (!flow) {
-          flow = await ChatbotFlow.findOne({
-            businessId: business._id,
-            status: 'active',
-            triggerType: { $in: ['any', 'both'] }
-          });
-          if (flow) matchReason = 'any/both';
-        }
-      }
-
-      // PRIORITY 3: Fallback (If no trigger and no session)
+      // 3. Fallback ('any', 'both', or explicit fallback)
       if (!flow) {
-        flow = await ChatbotFlow.findOne({
-          businessId: business._id,
-          status: 'active',
-          isFallback: true
-        });
-        if (flow) matchReason = 'fallback';
+        flow = activeFlows.find(f => f.triggerType === 'any' || f.triggerType === 'both');
+        if (flow) {
+           matchReason = 'any/both';
+        } else {
+           flow = activeFlows.find(f => f.isFallback === true);
+           if (flow) matchReason = 'fallback_explicit';
+           else {
+              flow = activeFlows.find(f => f.triggerType === 'any');
+              if (flow) matchReason = 'fallback_any';
+           }
+        }
       }
 
       // 4. Construct the response from the found flow
