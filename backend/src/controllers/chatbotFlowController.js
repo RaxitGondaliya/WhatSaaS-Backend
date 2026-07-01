@@ -466,42 +466,25 @@ exports.deleteFlow = async (req, res, next) => {
 };
 
 /**
- * DELETE /api/chatbot-flows/:id/nodes/:nodeId
+ * DELETE /api/chatbot-flows/:flowId/nodes/:nodeId
  * Delete a specific node from a flow and its connected edges.
  */
-exports.deleteNode = async (req, res, next) => {
-  try {
-    const scope = await getFlowScope(req.user.id);
-    if (sendScopeError(res, scope)) return;
-
-    const { id, nodeId } = req.params;
-
-    const flowExists = await ChatbotFlow.findOne(buildScopedQuery(scope, { _id: id }));
-    if (!flowExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'Chatbot flow not found',
-      });
+exports.deleteNode = async (req, res) => {
+    const { flowId, nodeId } = req.params;
+    try {
+        const updatedFlow = await ChatbotFlow.findByIdAndUpdate(
+            flowId,
+            { 
+                $pull: { 
+                    nodes: { id: nodeId },
+                    edges: { $or: [{ source: nodeId }, { target: nodeId }] } 
+                } 
+            },
+            { new: true }
+        );
+        if (!updatedFlow) return res.status(404).json({ message: "Flow not found" });
+        res.status(200).json(updatedFlow);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
-
-    const updatedFlow = await ChatbotFlow.findByIdAndUpdate(
-      id,
-      {
-        $pull: {
-          nodes: { id: nodeId },
-          edges: { $or: [{ source: nodeId }, { target: nodeId }] }
-        },
-        $set: { updatedBy: scope.currentUser._id }
-      },
-      { new: true, runValidators: true }
-    );
-
-    res.status(200).json({
-      success: true,
-      message: 'Node deleted successfully',
-      flow: formatFlow(updatedFlow),
-    });
-  } catch (error) {
-    next(error);
-  }
 };

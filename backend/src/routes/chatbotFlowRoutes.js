@@ -11,7 +11,7 @@ router.post('/', chatbotFlowController.createFlow);
 router.get('/:id', chatbotFlowController.getFlow);
 router.put('/:id', chatbotFlowController.updateFlow);
 router.put('/:id/activate', chatbotFlowController.activateFlow);
+router.delete('/:flowId/nodes/:nodeId', chatbotFlowController.deleteNode);
 router.delete('/:id', chatbotFlowController.deleteFlow);
-router.delete('/:id/nodes/:nodeId', chatbotFlowController.deleteNode);
 
 module.exports = router;
