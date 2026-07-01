@@ -160,8 +160,8 @@ class WhatsappService {
           buttonsPayload.push({
             type: 'reply',
             reply: {
-              // Prioritize triggerId or text over auto-generated graph IDs like btn.id to ensure DB matching
-              id: String(btn.triggerId || btn.text || btn.id || btn.nextMessageId || btn.nextFlowKeyword || `btn_${i}`),
+              // Format expected by the DB (e.g., "legacy_1782889143918")
+              id: `legacy_${btn.id || btn.nextMessageId || btn.nextFlowKeyword || i}`,
               title: (btn.text || `Option ${i + 1}`).substring(0, 20) 
             }
           });
