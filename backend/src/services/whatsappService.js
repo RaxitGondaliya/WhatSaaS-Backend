@@ -113,7 +113,7 @@ class WhatsappService {
             }
 
             // 5. Send the reply using the specific business's Access Token
-            if (replyData) {
+            if (replyData && replyData.type !== 'NoReply') {
               console.log('[DEBUG] Sending WhatsApp reply...');
               const sentMessageData = await this.sendMessage(from, replyData, phone_number_id, whatsappConfig.accessToken);
 

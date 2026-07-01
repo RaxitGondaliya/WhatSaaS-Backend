@@ -49,8 +49,10 @@ class ChatbotEngineService {
         if (targetNode) {
           matchReason = 'session_continuation';
         } else {
-          sessionAction = { type: 'delete' };
-          flow = null; // Reset to allow normal trigger matching
+          // If active session exists but no next node is found, the flow is complete.
+          // We MUST NOT fall back to Welcome/Default logic.
+          console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
+          return { type: 'NoReply', sessionAction: sessionAction || { type: 'delete' } };
         }
       }
 
