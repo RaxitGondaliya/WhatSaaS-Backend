@@ -13,5 +13,6 @@ router.put('/:id', chatbotFlowController.updateFlow);
 router.put('/:id/activate', chatbotFlowController.activateFlow);
 router.delete('/:flowId/nodes/:nodeId', chatbotFlowController.deleteNode);
 router.delete('/:id', chatbotFlowController.deleteFlow);
+router.get('/:flowId/deduplicate', chatbotFlowController.deduplicateNodes);
 
 module.exports = router;

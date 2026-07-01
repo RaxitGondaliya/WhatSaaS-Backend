@@ -472,12 +472,14 @@ exports.deleteFlow = async (req, res, next) => {
 exports.deleteNode = async (req, res) => {
     const { flowId, nodeId } = req.params;
     try {
+        const numericNodeId = !isNaN(nodeId) ? Number(nodeId) : nodeId;
         const updatedFlow = await ChatbotFlow.findByIdAndUpdate(
             flowId,
             { 
                 $pull: { 
-                    nodes: { id: nodeId },
-                    edges: { $or: [{ source: nodeId }, { target: nodeId }] } 
+                    nodes: { id: { $in: [nodeId, numericNodeId] } },
+                    messages: { id: { $in: [nodeId, numericNodeId] } },
+                    edges: { $or: [{ source: nodeId }, { target: nodeId }, { source: numericNodeId }, { target: numericNodeId }] } 
                 } 
             },
             { new: true }
@@ -486,5 +488,45 @@ exports.deleteNode = async (req, res) => {
         res.status(200).json(updatedFlow);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+};
+
+/**
+ * GET /api/chatbot-flows/:flowId/deduplicate
+ * Temporary endpoint to deduplicate nodes in a flow.
+ */
+exports.deduplicateNodes = async (req, res) => {
+    try {
+        const { flowId } = req.params;
+        const flow = await ChatbotFlow.findById(flowId);
+        
+        if (!flow) {
+            return res.status(404).json({ success: false, message: 'Chatbot flow not found' });
+        }
+        
+        if (!flow.nodes || flow.nodes.length === 0) {
+            return res.status(200).json({ success: true, message: 'No nodes to deduplicate', flow: formatFlow(flow) });
+        }
+        
+        const uniqueNodesMap = new Map();
+        flow.nodes.forEach(node => {
+            if (!uniqueNodesMap.has(String(node.id))) {
+                uniqueNodesMap.set(String(node.id), node);
+            }
+        });
+        
+        const deduplicatedNodes = Array.from(uniqueNodesMap.values());
+        const removedCount = flow.nodes.length - deduplicatedNodes.length;
+        
+        flow.nodes = deduplicatedNodes;
+        await flow.save();
+        
+        res.status(200).json({
+            success: true,
+            message: `Successfully removed ${removedCount} duplicate nodes.`,
+            flow: formatFlow(flow)
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 };
