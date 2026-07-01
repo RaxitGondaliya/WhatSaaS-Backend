@@ -93,17 +93,22 @@ class WhatsappService {
             if (replyData && replyData.sessionAction) {
               const action = replyData.sessionAction;
               if (action.type === 'create') {
+                 if (chatSession) await ChatSession.deleteOne({ _id: chatSession._id });
                  await ChatSession.create({
                    phoneNumber: from,
                    businessId: business._id,
                    currentFlowId: action.flowId,
                    currentNodeId: action.currentNodeId,
-                   variables: {}
+                   variables: action.variables || {},
+                   isWaitingForInput: action.isWaitingForInput || false,
+                   targetVariable: action.targetVariable || ''
                  });
                  console.log(`[Session] Created new session for ${from}`);
               } else if (action.type === 'update' && chatSession) {
                  chatSession.currentNodeId = action.currentNodeId || chatSession.currentNodeId;
                  chatSession.variables = action.variables;
+                 if (action.isWaitingForInput !== undefined) chatSession.isWaitingForInput = action.isWaitingForInput;
+                 if (action.targetVariable !== undefined) chatSession.targetVariable = action.targetVariable;
                  await chatSession.save();
                  console.log(`[Session] Updated session for ${from}`);
               } else if (action.type === 'delete' && chatSession) {

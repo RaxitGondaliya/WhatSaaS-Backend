@@ -17,6 +17,56 @@ class ChatbotEngineService {
       let sessionAction = null;
 
       console.log(`Searching for flow. Message: ${messageText}`);
+
+      // PRIORITY 0: Waiting for User Input (Absolute Interception)
+      if (chatSession && chatSession.isWaitingForInput === true) {
+        console.log(`[Session Intercept] User is in an active session waiting for input on node: ${chatSession.currentNodeId}`);
+        const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
+        
+        if (sessionFlow && sessionFlow.nodes) {
+          const varName = chatSession.targetVariable || 'answer';
+          sessionAction = { 
+             type: 'update', 
+             variables: { ...(chatSession.variables || {}) },
+             isWaitingForInput: false,
+             targetVariable: ''
+          };
+          sessionAction.variables[varName] = messageText;
+
+          let nextNodeId = null;
+          if (sessionFlow.edges) {
+             const edge = sessionFlow.edges.find(e => String(e.source) === String(chatSession.currentNodeId));
+             if (edge) nextNodeId = edge.target;
+          }
+
+          if (nextNodeId) {
+             targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
+             if (targetNode) {
+                sessionAction.currentNodeId = nextNodeId;
+                
+                let replyData = { 
+                  type: targetNode.type || 'Text',
+                  text: targetNode.text || '', 
+                  buttons: targetNode.buttons || [] 
+                };
+
+                // Check if this NEW node also requires waiting for input
+                if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable) {
+                  sessionAction.isWaitingForInput = true;
+                  sessionAction.targetVariable = targetNode.variable || 'answer';
+                }
+
+                replyData.sessionAction = sessionAction;
+                console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
+                return replyData;
+             }
+          }
+        }
+        
+        console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
+        return { type: 'NoReply', sessionAction: { type: 'delete' } };
+      }
+
       const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
 
       // 1. Check for Explicit Triggers (Button / Keyword)
@@ -34,56 +84,6 @@ class ChatbotEngineService {
         if (flow) matchReason = 'keyword';
       }
 
-      // If an explicit trigger matched, we break out of any active session
-      if (flow && chatSession) {
-        sessionAction = { type: 'delete' };
-      }
-
-      // 2. Session Continuity
-      if (!flow && chatSession && chatSession.currentNodeId) {
-        const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
-        if (sessionFlow && sessionFlow.nodes) {
-          const currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
-          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.variable)) {
-            const varName = currentNode.variable || 'answer';
-            
-            sessionAction = { type: 'update', variables: { ...(chatSession.variables || {}) } };
-            sessionAction.variables[varName] = messageText;
-
-            let nextNodeId = currentNode.nextMessageId;
-            if (!nextNodeId && sessionFlow.edges) {
-               const edge = sessionFlow.edges.find(e => String(e.source) === String(currentNode.id));
-               if (edge) nextNodeId = edge.target;
-            }
-
-            if (nextNodeId) {
-               targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
-               if (targetNode) {
-                  sessionAction.currentNodeId = nextNodeId;
-                  
-                  let replyData = { 
-                    type: targetNode.type || 'Text',
-                    text: targetNode.text || '', 
-                    buttons: targetNode.buttons || [] 
-                  };
-
-                  if (targetNode.type !== 'Ask Question' && !targetNode.variable) {
-                    sessionAction.type = 'delete';
-                  }
-
-                  replyData.sessionAction = sessionAction;
-                  console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
-                  return replyData;
-               }
-            }
-          }
-        }
-        
-        console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
-        return { type: 'NoReply', sessionAction: { type: 'delete' } };
-      }
-
-      // 3. Fallback ('any', 'both', or explicit fallback)
       if (!flow) {
         flow = activeFlows.find(f => f.triggerType === 'any' || f.triggerType === 'both');
         if (flow) {
@@ -136,14 +136,18 @@ class ChatbotEngineService {
             };
 
             // Session check for Ask Question nodes
-            if (targetNode.type === 'Ask Question' || targetNode.variable) {
-              if (!sessionAction || sessionAction.type === 'delete') {
-                 sessionAction = { type: 'create', flowId: flow._id, currentNodeId: targetNode.id };
-              }
+            if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable) {
+               sessionAction = { 
+                  type: 'create', 
+                  flowId: flow._id, 
+                  currentNodeId: targetNode.id,
+                  isWaitingForInput: true,
+                  targetVariable: targetNode.variable || 'answer',
+                  variables: chatSession ? chatSession.variables : {}
+               };
             } else {
-              if (sessionAction && sessionAction.type === 'update') {
-                 sessionAction.type = 'delete'; // Completed the multi-step flow questions
-              }
+               // Normal flow creation, we just send message. 
+               // No need to create a session if it doesn't wait for input.
             }
           }
         }

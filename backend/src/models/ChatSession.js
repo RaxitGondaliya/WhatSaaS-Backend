@@ -25,6 +25,13 @@ const chatSessionSchema = new mongoose.Schema(
     variables: {
       type: mongoose.Schema.Types.Mixed,
       default: {},
+    },
+    isWaitingForInput: {
+      type: Boolean,
+      default: false
+    },
+    targetVariable: {
+      type: String
     }
   },
   {
