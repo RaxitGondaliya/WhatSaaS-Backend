@@ -18,54 +18,67 @@ class ChatbotEngineService {
 
       console.log(`Searching for flow. Message: ${messageText}`);
 
-      // PRIORITY 0: Waiting for User Input (Absolute Interception)
-      if (chatSession && chatSession.isWaitingForInput === true) {
+      // 1. Session & Input Node Check (Dynamic)
+      let isWaitingForInput = false;
+      let sessionFlow = null;
+      let currentNode = null;
+
+      if (chatSession && chatSession.currentNodeId) {
+         sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
+         if (sessionFlow && sessionFlow.nodes) {
+            currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
+            if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable)) {
+               isWaitingForInput = true;
+            }
+         }
+      }
+
+      // 2. Strict Priority Wrapper
+      if (chatSession && isWaitingForInput) {
         console.log(`[Session Intercept] User is in an active session waiting for input on node: ${chatSession.currentNodeId}`);
-        const sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
+        const varName = currentNode.variable || 'answer';
         
-        if (sessionFlow && sessionFlow.nodes) {
-          const varName = chatSession.targetVariable || 'answer';
-          sessionAction = { 
-             type: 'update', 
-             variables: { ...(chatSession.variables || {}) },
-             isWaitingForInput: false,
-             targetVariable: ''
-          };
-          sessionAction.variables[varName] = messageText;
+        sessionAction = { 
+           type: 'update', 
+           variables: { ...(chatSession.variables || {}) }
+        };
+        sessionAction.variables[varName] = messageText;
 
-          let nextNodeId = null;
-          if (sessionFlow.edges) {
-             const edge = sessionFlow.edges.find(e => String(e.source) === String(chatSession.currentNodeId));
-             if (edge) nextNodeId = edge.target;
-          }
+        let nextNodeId = null;
+        if (sessionFlow.edges) {
+           const edge = sessionFlow.edges.find(e => String(e.source) === String(chatSession.currentNodeId));
+           if (edge) nextNodeId = edge.target;
+        }
+        if (!nextNodeId && currentNode.nextMessageId) {
+           nextNodeId = currentNode.nextMessageId;
+        }
 
-          if (nextNodeId) {
-             targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
-             if (targetNode) {
-                sessionAction.currentNodeId = nextNodeId;
-                
-                let replyData = { 
-                  type: targetNode.type || 'Text',
-                  text: targetNode.text || '', 
-                  buttons: targetNode.buttons || [] 
-                };
+        if (nextNodeId) {
+           targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
+           if (targetNode) {
+              sessionAction.currentNodeId = nextNodeId;
+              
+              let replyData = { 
+                type: targetNode.type || 'Text',
+                text: targetNode.text || '', 
+                buttons: targetNode.buttons || [] 
+              };
 
-                // Check if this NEW node also requires waiting for input
-                if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable) {
-                  sessionAction.isWaitingForInput = true;
-                  sessionAction.targetVariable = targetNode.variable || 'answer';
-                }
+              if (!(targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable)) {
+                sessionAction.type = 'delete';
+              }
 
-                replyData.sessionAction = sessionAction;
-                console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
-                return replyData;
-             }
-          }
+              replyData.sessionAction = sessionAction;
+              console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
+              return replyData;
+           }
         }
         
         console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
         return { type: 'NoReply', sessionAction: { type: 'delete' } };
-      }
+
+      } else {
+        // Run keyword/trigger logic
 
       const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
 
@@ -160,6 +173,7 @@ class ChatbotEngineService {
       }
 
       return null;
+      } // End of strict priority else block
     } catch (error) {
       console.error('Error fetching chatbot flow from DB:', error);
       return null;
