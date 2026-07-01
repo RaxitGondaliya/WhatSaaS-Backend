@@ -56,18 +56,51 @@ class ChatbotEngineService {
          return data;
       };
 
-      // 1.5 Button Click Traversal (Visual Flow)
-      if (chatSession && currentNode && triggerId) {
-         console.log("DEBUG: Looking for edge with sourceHandle:", triggerId);
-         const edge = sessionFlow.edges && sessionFlow.edges.find(e => String(e.source) === String(currentNode.id) && String(e.sourceHandle) === String(triggerId).trim());
+      // 2. Dynamic Routing (Button Click or Text Input in Active Session)
+      if (chatSession && currentNode && !globalKeywordFlow) {
+         let matchedNextNodeId = null;
+         let isValidSessionAction = false;
          
-         if (edge) {
-            console.log("DEBUG: Found edge target:", edge.target);
-            targetNode = sessionFlow.nodes.find(n => String(n.id) === String(edge.target));
+         sessionAction = {
+            type: 'update',
+            variables: { ...(chatSession.variables || {}) }
+         };
+
+         // A) Button Reply Handling
+         if (triggerId) {
+            console.log("DEBUG: Looking for button with ID:", triggerId);
+            const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
+            const clickedButton = nodeButtons.find(b => String(b.id) === String(triggerId).trim());
+            
+            if (clickedButton && clickedButton.nextMessageId) {
+               console.log("DEBUG: Button matched. Next node:", clickedButton.nextMessageId);
+               matchedNextNodeId = clickedButton.nextMessageId;
+               isValidSessionAction = true;
+            } else if (currentNode.nextMessageId) {
+               console.log("DEBUG: Button has no nextMessageId. Using node's default transition.");
+               matchedNextNodeId = currentNode.nextMessageId;
+               isValidSessionAction = true;
+            }
+         }
+         // B) Text Input Handling
+         else if (isWaitingForInput) {
+            console.log(`[Session Intercept] User text input captured for node: ${chatSession.currentNodeId}`);
+            const varName = currentNode.variable || currentNode.data?.variable || 'answer';
+            sessionAction.variables[varName] = messageText;
+            
+            if (currentNode.nextMessageId) {
+               matchedNextNodeId = currentNode.nextMessageId;
+               isValidSessionAction = true;
+            }
+         }
+
+         // C) Proceed to Next Node if valid
+         if (isValidSessionAction && matchedNextNodeId) {
+            targetNode = sessionFlow.nodes.find(n => String(n.id) === String(matchedNextNodeId));
             
             if (targetNode) {
-               sessionAction = { type: 'update', currentNodeId: targetNode.id, variables: chatSession.variables || {} };
-               
+               sessionAction.currentNodeId = matchedNextNodeId;
+
                console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
                const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
                const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
@@ -85,55 +118,21 @@ class ChatbotEngineService {
                }
 
                replyData.sessionAction = sessionAction;
-               console.log(`[Button Traversal] Proceeding to next message: ${targetNode.id}`);
-               return interpolate(replyData, chatSession.variables);
+               console.log(`[Dynamic Routing] Proceeding to next message: ${targetNode.id}`);
+               return interpolate(replyData, sessionAction.variables);
+            } else {
+               console.error(`[Error] Target node ${matchedNextNodeId} not found. Path is broken.`);
+               sessionAction.type = 'delete';
+               return { type: 'Text', text: 'Something went wrong processing your request. Please try again.', sessionAction };
             }
          }
-      }
 
-      // 2. Text Input Capture (Manual List Flow)
-      if (chatSession && isWaitingForInput && !globalKeywordFlow && !triggerId) {
-        console.log(`[Session Intercept] User is in an active session waiting for input on node: ${chatSession.currentNodeId}`);
-        const varName = currentNode.variable || 'answer';
-
-        sessionAction = {
-          type: 'update',
-          variables: { ...(chatSession.variables || {}) }
-        };
-        sessionAction.variables[varName] = messageText;
-
-        // Manual List routing strictly uses nextMessageId
-        const nextNodeId = currentNode.nextMessageId;
-
-        if (nextNodeId) {
-          targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
-          if (targetNode) {
-            sessionAction.currentNodeId = nextNodeId;
-
-            console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
-            const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
-            const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
-
-            let replyData = {
-              type: targetNode.type || 'Text',
-              text: nodeText,
-              buttons: nodeButtons
-            };
-
-            const hasButtons = nodeButtons.length > 0;
-            const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
-            if (!(isAsk || hasButtons)) {
-              sessionAction.type = 'delete';
-            }
-
-            replyData.sessionAction = sessionAction;
-            console.log(`[Session Continuity] Proceeding to next message: ${targetNode.id}`);
-            return interpolate(replyData, sessionAction.variables);
-          }
-        }
-
-        console.log(`[DEBUG] Flow ended or invalid state. Clearing session.`);
-        return { type: 'NoReply', sessionAction: { type: 'delete' } };
+         // If it's a random message in a non-input node, let it fall through to New Flow Routing.
+         // Otherwise, if it was an invalid button or input without a path, end the session.
+         if (triggerId || isWaitingForInput) {
+            console.log(`[DEBUG] Flow ended or invalid state. Clearing session.`);
+            return { type: 'NoReply', sessionAction: { type: 'delete' } };
+         }
       }
 
       // 3. New Flow Routing (Keywords or Buttons)
