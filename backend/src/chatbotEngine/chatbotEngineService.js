@@ -75,14 +75,19 @@ class ChatbotEngineService {
           if (targetNode) {
             sessionAction.currentNodeId = nextNodeId;
 
+            console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
+            const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
+            const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
+
             let replyData = {
               type: targetNode.type || 'Text',
-              text: targetNode.text || '',
-              buttons: targetNode.buttons || []
+              text: nodeText,
+              buttons: nodeButtons
             };
 
-            const hasButtons = targetNode.buttons && targetNode.buttons.length > 0;
-            if (!(targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable || hasButtons)) {
+            const hasButtons = nodeButtons.length > 0;
+            const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
+            if (!(isAsk || hasButtons)) {
               sessionAction.type = 'delete';
             }
 
@@ -165,21 +170,26 @@ class ChatbotEngineService {
           }
 
           if (targetNode) {
+            console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
+            const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
+            const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
+
             replyData = {
               type: targetNode.type || 'Text',
-              text: targetNode.text || '',
-              buttons: targetNode.buttons || []
+              text: nodeText,
+              buttons: nodeButtons
             };
 
-            const hasButtons = targetNode.buttons && targetNode.buttons.length > 0;
+            const hasButtons = nodeButtons.length > 0;
             // Initiate session if the node needs user input or button response
-            if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable || hasButtons) {
+            const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
+            if (isAsk || hasButtons) {
               sessionAction = {
                 type: 'create',
                 flowId: flow._id,
                 currentNodeId: targetNode.id,
-                isWaitingForInput: Boolean(targetNode.is_ask_question || targetNode.variable),
-                targetVariable: targetNode.variable || 'answer',
+                isWaitingForInput: Boolean(isAsk),
+                targetVariable: targetNode.variable || targetNode.data?.variable || 'answer',
                 variables: chatSession ? chatSession.variables : {}
               };
             }

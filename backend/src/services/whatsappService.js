@@ -227,6 +227,15 @@ class WhatsappService {
         };
       }
 
+      // Payload Validation Check
+      if (payload.type === 'text' && (!payload.text || !payload.text.body)) {
+         console.error("Payload body is empty!");
+         return null;
+      } else if (payload.type === 'interactive' && (!payload.interactive.body || !payload.interactive.body.text)) {
+         console.error("Payload interactive body is empty!");
+         return null;
+      }
+
       console.log(`\n[DEBUG] generated payload:`, JSON.stringify(payload, null, 2));
 
       const config = {
