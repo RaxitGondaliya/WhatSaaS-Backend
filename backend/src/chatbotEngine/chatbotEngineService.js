@@ -14,10 +14,12 @@ class ChatbotEngineService {
       // Check if the user explicitly typed a global trigger keyword (this overrides active sessions)
       let globalKeywordFlow = null;
       if (!triggerId) {
+        const escapeRegex = (string) => string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const normalizedMsg = escapeRegex(messageText.trim().replace(/\s+/g, ' '));
         globalKeywordFlow = await ChatbotFlow.findOne({ 
            businessId: business._id, 
            status: 'active', 
-           triggerKeywords: { $in: [lowerText] } 
+           triggerKeywords: { $regex: new RegExp(`^${normalizedMsg}$`, 'i') } 
         });
       }
 
@@ -122,14 +124,14 @@ class ChatbotEngineService {
       }
 
       if (!flow) {
-        flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $in: ['any', 'both'] } });
+        flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $regex: /^(any|both)$/i } });
         if (flow) {
           matchReason = 'any/both';
         } else {
           flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', isFallback: true });
           if (flow) matchReason = 'fallback_explicit';
           else {
-            flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: 'any' });
+            flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $regex: /^any$/i } });
             if (flow) matchReason = 'fallback_any';
           }
         }
@@ -142,6 +144,7 @@ class ChatbotEngineService {
       // 4. Construct the initial response from the flow
       if (flow) {
         console.log(`\nMatched flow: ${flow.flowName || flow._id} by ${matchReason}`);
+        console.log("DEBUG: Flow keywords in DB:", flow.triggerKeywords);
         
         let replyData = null;
         
