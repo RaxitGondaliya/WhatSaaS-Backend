@@ -1,22 +1,25 @@
 const ChatbotFlow = require('../models/ChatbotFlow');
 
 class ChatbotEngineService {
-  /**
-   * Process an incoming message and generate the next step in the flow.
-   * @param {string} messageText - The user's input text or button reply.
-   * @param {Object} business - The matched Business object.
-   * @param {Object} conversation - The conversation state object.
-   * @returns {Object|null} The reply object containing { text, buttons } or null
-   */
   async processMessage(messageText, triggerId, business, conversation, chatSession) {
     try {
+      console.log("DEBUG: Processing message from:", conversation?.phoneNumber || 'Unknown', "Body:", messageText, "Business:", business._id);
+
       const lowerText = messageText.trim().toLowerCase();
       let flow = null;
       let matchReason = '';
       let targetNode = null;
       let sessionAction = null;
 
-      console.log(`Searching for flow. Message: ${messageText}`);
+      // Check if the user explicitly typed a global trigger keyword (this overrides active sessions)
+      let globalKeywordFlow = null;
+      if (!triggerId) {
+        globalKeywordFlow = await ChatbotFlow.findOne({ 
+           businessId: business._id, 
+           status: 'active', 
+           triggerKeywords: { $in: [lowerText] } 
+        });
+      }
 
       // 1. Session & Input Node Check (Dynamic)
       let isWaitingForInput = false;
@@ -24,103 +27,125 @@ class ChatbotEngineService {
       let currentNode = null;
 
       if (chatSession && chatSession.currentNodeId) {
-         sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
-         if (sessionFlow && sessionFlow.nodes) {
-            currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
-            if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable)) {
-               isWaitingForInput = true;
-            }
-         }
+        sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
+        if (sessionFlow && sessionFlow.nodes) {
+          currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
+          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable)) {
+            isWaitingForInput = true;
+          }
+        }
       }
 
-      // 2. Strict Priority Wrapper
-      if (chatSession && isWaitingForInput) {
+      // Helper function for dynamic variable interpolation {{variable}}
+      const interpolate = (data, vars) => {
+         const sessionVars = vars || {};
+         const replaceVars = (str) => {
+            if (!str) return str;
+            return str.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
+               const k = key.trim();
+               return sessionVars[k] !== undefined ? sessionVars[k] : match;
+            });
+         };
+         
+         if (data.text) data.text = replaceVars(data.text);
+         if (data.caption) data.caption = replaceVars(data.caption);
+         if (data.buttons && Array.isArray(data.buttons)) {
+            data.buttons = data.buttons.map(b => ({ ...b, text: replaceVars(b.text) }));
+         }
+         return data;
+      };
+
+      // 2. Text Input Capture (Manual List Flow)
+      if (chatSession && isWaitingForInput && !globalKeywordFlow && !triggerId) {
         console.log(`[Session Intercept] User is in an active session waiting for input on node: ${chatSession.currentNodeId}`);
         const varName = currentNode.variable || 'answer';
-        
-        sessionAction = { 
-           type: 'update', 
-           variables: { ...(chatSession.variables || {}) }
+
+        sessionAction = {
+          type: 'update',
+          variables: { ...(chatSession.variables || {}) }
         };
         sessionAction.variables[varName] = messageText;
 
-        let nextNodeId = null;
-        if (sessionFlow.edges) {
-           const edge = sessionFlow.edges.find(e => String(e.source) === String(chatSession.currentNodeId));
-           if (edge) nextNodeId = edge.target;
-        }
-        if (!nextNodeId && currentNode.nextMessageId) {
-           nextNodeId = currentNode.nextMessageId;
-        }
+        // Manual List routing strictly uses nextMessageId
+        const nextNodeId = currentNode.nextMessageId;
 
         if (nextNodeId) {
-           targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
-           if (targetNode) {
-              sessionAction.currentNodeId = nextNodeId;
-              
-              let replyData = { 
-                type: targetNode.type || 'Text',
-                text: targetNode.text || '', 
-                buttons: targetNode.buttons || [] 
-              };
+          targetNode = sessionFlow.nodes.find(n => String(n.id) === String(nextNodeId));
+          if (targetNode) {
+            sessionAction.currentNodeId = nextNodeId;
 
-              if (!(targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable)) {
-                sessionAction.type = 'delete';
-              }
+            let replyData = {
+              type: targetNode.type || 'Text',
+              text: targetNode.text || '',
+              buttons: targetNode.buttons || []
+            };
 
-              replyData.sessionAction = sessionAction;
-              console.log(`[Session Continuity] Proceeding to next node: ${targetNode.id}`);
-              return replyData;
-           }
+            const hasButtons = targetNode.buttons && targetNode.buttons.length > 0;
+            if (!(targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable || hasButtons)) {
+              sessionAction.type = 'delete';
+            }
+
+            replyData.sessionAction = sessionAction;
+            console.log(`[Session Continuity] Proceeding to next message: ${targetNode.id}`);
+            return interpolate(replyData, sessionAction.variables);
+          }
         }
-        
-        console.log(`[DEBUG] Session reached end of flow or invalid state. Clearing session.`);
+
+        console.log(`[DEBUG] Flow ended or invalid state. Clearing session.`);
         return { type: 'NoReply', sessionAction: { type: 'delete' } };
+      }
 
-      } else {
-        // Run keyword/trigger logic
-
-      const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
-
-      // 1. Check for Explicit Triggers (Button / Keyword)
-      if (triggerId) {
-        flow = activeFlows.find(f => f.nodes && f.nodes.some(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim()));
+      // 3. New Flow Routing (Keywords or Buttons)
+      
+      // If there's a global keyword override, it takes absolute precedence
+      if (globalKeywordFlow) {
+        flow = globalKeywordFlow;
+        matchReason = 'keyword';
+        // Force clear any active session because a global trigger was hit
+        if (chatSession) {
+           sessionAction = { type: 'delete' };
+           console.log(`[DEBUG] Global trigger found for "${messageText}". Clearing existing session.`);
+        }
+      } else if (triggerId) {
+        flow = await ChatbotFlow.findOne({
+           businessId: business._id,
+           status: 'active',
+           'nodes.triggerType': 'button_click',
+           'nodes.triggerId': String(triggerId).trim()
+        });
         if (flow) {
           matchReason = 'button_click';
         } else {
-          console.log(`[DEBUG] No matching button flow found for triggerId: ${triggerId}. Halting fallback.`);
+          console.log(`[DEBUG] No matching flow for button ID: ${triggerId}.`);
           return null;
         }
-      } else {
-        // Check keywords
-        flow = activeFlows.find(f => f.triggerKeywords && f.triggerKeywords.some(k => k.trim().toLowerCase() === lowerText));
-        if (flow) matchReason = 'keyword';
       }
 
       if (!flow) {
-        flow = activeFlows.find(f => f.triggerType === 'any' || f.triggerType === 'both');
+        flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: { $in: ['any', 'both'] } });
         if (flow) {
-           matchReason = 'any/both';
+          matchReason = 'any/both';
         } else {
-           flow = activeFlows.find(f => f.isFallback === true);
-           if (flow) matchReason = 'fallback_explicit';
-           else {
-              flow = activeFlows.find(f => f.triggerType === 'any');
-              if (flow) matchReason = 'fallback_any';
-           }
+          flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', isFallback: true });
+          if (flow) matchReason = 'fallback_explicit';
+          else {
+            flow = await ChatbotFlow.findOne({ businessId: business._id, status: 'active', triggerType: 'any' });
+            if (flow) matchReason = 'fallback_any';
+          }
         }
       }
 
-      // 4. Construct the response from the found flow
+      if (!flow) {
+         console.log("DEBUG: No flow found for business:", business._id, "and keyword:", messageText);
+      }
+
+      // 4. Construct the initial response from the flow
       if (flow) {
-        console.log(`\nMatched flow: ${flow.flowName || flow._id}`);
-        console.log(`triggerType: ${flow.triggerType}`);
-        console.log(`triggerKeywords: ${JSON.stringify(flow.triggerKeywords || [])}`);
-        console.log(`matched flow id: ${flow._id}`);
-        console.log(`reason flow matched: ${matchReason}`);
-        console.log(`Generating WhatsApp reply...`);
+        console.log(`\nMatched flow: ${flow.flowName || flow._id} by ${matchReason}`);
         
         let replyData = null;
+        
+        // Handle flows with no node structures
         if (flow.replyText && (!flow.nodes || flow.nodes.length === 0)) {
           replyData = {
             type: 'Text',
@@ -129,51 +154,44 @@ class ChatbotEngineService {
           };
           if (sessionAction && sessionAction.type === 'update') sessionAction.type = 'delete';
         } else if (flow.nodes && flow.nodes.length > 0) {
+          
+          if (triggerId) {
+            targetNode = flow.nodes.find(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim());
+          }
           if (!targetNode) {
-            if (triggerId) {
-              targetNode = flow.nodes.find(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim());
-            }
-            if (!targetNode) {
-              targetNode = flow.nodes.find(n => n.text || (n.buttons && n.buttons.length > 0));
-            }
+             // Default to the first message in the list
+            targetNode = flow.nodes.find(n => n.text || (n.buttons && n.buttons.length > 0));
           }
 
           if (targetNode) {
-            console.log(`\n[DEBUG] loaded node:`, JSON.stringify({ id: targetNode.id, type: targetNode.type, text: targetNode.text }));
-            console.log(`[DEBUG] loaded buttons:`, JSON.stringify(targetNode.buttons || []));
-            
-            replyData = { 
+            replyData = {
               type: targetNode.type || 'Text',
-              text: targetNode.text || '', 
-              buttons: targetNode.buttons || [] 
+              text: targetNode.text || '',
+              buttons: targetNode.buttons || []
             };
 
-            // Session check for Ask Question nodes
-            if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable) {
-               sessionAction = { 
-                  type: 'create', 
-                  flowId: flow._id, 
-                  currentNodeId: targetNode.id,
-                  isWaitingForInput: true,
-                  targetVariable: targetNode.variable || 'answer',
-                  variables: chatSession ? chatSession.variables : {}
-               };
-            } else {
-               // Normal flow creation, we just send message. 
-               // No need to create a session if it doesn't wait for input.
+            const hasButtons = targetNode.buttons && targetNode.buttons.length > 0;
+            // Initiate session if the node needs user input or button response
+            if (targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable || hasButtons) {
+              sessionAction = {
+                type: 'create',
+                flowId: flow._id,
+                currentNodeId: targetNode.id,
+                isWaitingForInput: Boolean(targetNode.is_ask_question || targetNode.variable),
+                targetVariable: targetNode.variable || 'answer',
+                variables: chatSession ? chatSession.variables : {}
+              };
             }
           }
         }
 
         if (replyData) {
           replyData.sessionAction = sessionAction;
-          console.log(`Reply generated: type="${replyData.type}", text="${(replyData.text || '').substring(0, 30)}...", buttons=${replyData.buttons.length}`);
-          return replyData;
+          return interpolate(replyData, sessionAction && sessionAction.variables ? sessionAction.variables : (chatSession ? chatSession.variables : {}));
         }
       }
 
       return null;
-      } // End of strict priority else block
     } catch (error) {
       console.error('Error fetching chatbot flow from DB:', error);
       return null;
