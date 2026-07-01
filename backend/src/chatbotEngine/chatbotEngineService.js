@@ -56,6 +56,41 @@ class ChatbotEngineService {
          return data;
       };
 
+      // 1.5 Button Click Traversal (Visual Flow)
+      if (chatSession && currentNode && triggerId) {
+         console.log("DEBUG: Looking for edge with sourceHandle:", triggerId);
+         const edge = sessionFlow.edges && sessionFlow.edges.find(e => String(e.source) === String(currentNode.id) && String(e.sourceHandle) === String(triggerId).trim());
+         
+         if (edge) {
+            console.log("DEBUG: Found edge target:", edge.target);
+            targetNode = sessionFlow.nodes.find(n => String(n.id) === String(edge.target));
+            
+            if (targetNode) {
+               sessionAction = { type: 'update', currentNodeId: targetNode.id, variables: chatSession.variables || {} };
+               
+               console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
+               const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
+               const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
+
+               let replyData = {
+                 type: targetNode.type || 'Text',
+                 text: nodeText,
+                 buttons: nodeButtons
+               };
+
+               const hasButtons = nodeButtons.length > 0;
+               const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
+               if (!(isAsk || hasButtons)) {
+                 sessionAction.type = 'delete';
+               }
+
+               replyData.sessionAction = sessionAction;
+               console.log(`[Button Traversal] Proceeding to next message: ${targetNode.id}`);
+               return interpolate(replyData, chatSession.variables);
+            }
+         }
+      }
+
       // 2. Text Input Capture (Manual List Flow)
       if (chatSession && isWaitingForInput && !globalKeywordFlow && !triggerId) {
         console.log(`[Session Intercept] User is in an active session waiting for input on node: ${chatSession.currentNodeId}`);
