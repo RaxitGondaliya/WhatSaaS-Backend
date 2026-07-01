@@ -29,10 +29,15 @@ const chatbotFlowSchema = new mongoose.Schema(
     triggerType: {
       type: String,
       enum: {
-        values: ['keywords', 'any', 'both'],
-        message: 'Trigger type must be keywords, any, or both',
+        values: ['keyword', 'keywords', 'any', 'both', 'button_click', 'default'],
+        message: 'Trigger type must be keyword, keywords, any, both, button_click, or default',
       },
       default: 'keywords',
+    },
+    triggerId: {
+      type: String,
+      trim: true,
+      default: '',
     },
     status: {
       type: String,

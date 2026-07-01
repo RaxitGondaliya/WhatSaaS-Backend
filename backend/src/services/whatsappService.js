@@ -42,6 +42,7 @@ class WhatsappService {
         }
 
         let msg_body = '';
+        let triggerId = null;
 
         // Handle normal text messages
         if (message.type === 'text') {
@@ -51,8 +52,12 @@ class WhatsappService {
         else if (message.type === 'interactive') {
           if (message.interactive.type === 'button_reply') {
             msg_body = message.interactive.button_reply.title || message.interactive.button_reply.id;
+            triggerId = message.interactive.button_reply.id;
+            console.log(`[DEBUG] Received Button ID: ${triggerId}`);
           } else if (message.interactive.type === 'list_reply') {
             msg_body = message.interactive.list_reply.title || message.interactive.list_reply.id;
+            triggerId = message.interactive.list_reply.id;
+            console.log(`[DEBUG] Received List ID: ${triggerId}`);
           }
         }
 
@@ -79,7 +84,7 @@ class WhatsappService {
 
             // 4. Generate dynamic reply using the new Chatbot Engine
             console.log('Generating reply from DB...');
-            const replyData = await chatbotEngineService.processMessage(msg_body, business, conversation);
+            const replyData = await chatbotEngineService.processMessage(msg_body, triggerId, business, conversation);
 
             // 5. Send the reply using the specific business's Access Token
             if (replyData) {

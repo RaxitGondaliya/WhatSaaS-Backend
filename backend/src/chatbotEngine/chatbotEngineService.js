@@ -8,36 +8,56 @@ class ChatbotEngineService {
    * @param {Object} conversation - The conversation state object.
    * @returns {Object|null} The reply object containing { text, buttons } or null
    */
-  async processMessage(messageText, business, conversation) {
+  async processMessage(messageText, triggerId, business, conversation) {
     try {
       const lowerText = messageText.trim().toLowerCase();
+      let flow = null;
+      let matchReason = '';
 
-      // 1. Prioritize keyword matching to allow users to jump flows at any time
-      let flow = await ChatbotFlow.findOne({
-        businessId: business._id,
-        status: 'active',
-        triggerKeywords: { $in: [lowerText] }
-      });
-      let matchReason = 'keyword';
-
-      // 2. If no keyword match, check if we have an 'any' or 'both' trigger flow
-      if (!flow) {
+      // 1. If it's a button click, strictly handle it and DO NOT fallback if not found
+      if (triggerId) {
         flow = await ChatbotFlow.findOne({
           businessId: business._id,
           status: 'active',
-          triggerType: { $in: ['any', 'both'] }
+          'nodes.triggerType': 'button_click',
+          'nodes.triggerId': String(triggerId).trim()
         });
-        matchReason = 'any/both';
-      }
+        if (flow) {
+          matchReason = 'button_click';
+        } else {
+          console.log(`[DEBUG] No matching button flow found for triggerId: ${triggerId}. Halting fallback.`);
+          return null; // Stop fallback loop
+        }
+      } else {
+        // 2. Prioritize keyword matching to allow users to jump flows at any time
+        if (!flow) {
+          flow = await ChatbotFlow.findOne({
+            businessId: business._id,
+            status: 'active',
+            triggerKeywords: { $in: [lowerText] }
+          });
+          if (flow) matchReason = 'keyword';
+        }
 
-      // 3. Fallback logic if no dynamic flow matches
-      if (!flow) {
-        flow = await ChatbotFlow.findOne({
-          businessId: business._id,
-          status: 'active',
-          isFallback: true
-        });
-        matchReason = 'fallback';
+        // 3. If no keyword match, check if we have an 'any' or 'both' trigger flow
+        if (!flow) {
+          flow = await ChatbotFlow.findOne({
+            businessId: business._id,
+            status: 'active',
+            triggerType: { $in: ['any', 'both'] }
+          });
+          if (flow) matchReason = 'any/both';
+        }
+
+        // 4. Fallback logic if no dynamic flow matches
+        if (!flow) {
+          flow = await ChatbotFlow.findOne({
+            businessId: business._id,
+            status: 'active',
+            isFallback: true
+          });
+          if (flow) matchReason = 'fallback';
+        }
       }
 
       // 4. Construct the response from the found flow
@@ -50,25 +70,32 @@ class ChatbotEngineService {
         console.log(`Generating WhatsApp reply...`);
         
         let replyData = null;
-        if (flow.replyText) {
+        if (flow.replyText && (!flow.nodes || flow.nodes.length === 0)) {
           replyData = {
             type: 'Text',
             text: flow.replyText,
             buttons: flow.buttons || []
           };
         } else if (flow.nodes && flow.nodes.length > 0) {
-          for (const node of flow.nodes) {
-            if (node.text || (node.buttons && node.buttons.length > 0)) {
-              console.log(`\n[DEBUG] loaded node:`, JSON.stringify({ id: node.id, type: node.type, text: node.text }));
-              console.log(`[DEBUG] loaded buttons:`, JSON.stringify(node.buttons || []));
-              
-              replyData = { 
-                type: node.type || 'Text',
-                text: node.text || '', 
-                buttons: node.buttons || [] 
-              };
-              break;
-            }
+          let targetNode = null;
+          
+          if (triggerId) {
+            targetNode = flow.nodes.find(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim());
+          }
+          
+          if (!targetNode) {
+            targetNode = flow.nodes.find(n => n.text || (n.buttons && n.buttons.length > 0));
+          }
+
+          if (targetNode) {
+            console.log(`\n[DEBUG] loaded node:`, JSON.stringify({ id: targetNode.id, type: targetNode.type, text: targetNode.text }));
+            console.log(`[DEBUG] loaded buttons:`, JSON.stringify(targetNode.buttons || []));
+            
+            replyData = { 
+              type: targetNode.type || 'Text',
+              text: targetNode.text || '', 
+              buttons: targetNode.buttons || [] 
+            };
           }
         }
 
