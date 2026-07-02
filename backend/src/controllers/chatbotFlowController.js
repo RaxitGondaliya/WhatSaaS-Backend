@@ -121,13 +121,12 @@ const formatFlow = (flow) => {
   const flowObj = flow.toObject ? flow.toObject() : flow;
   
   const nodes = (flowObj.nodes || []).map(node => {
+    if (!node) return null;
     if (!node.position) {
       node.position = { x: 0, y: 0 };
     }
     return node;
-  });
-
-  const uniqueNodes = Array.from(new Map(nodes.map(node => [node.id, node])).values());
+  }).filter(Boolean);
 
   return {
     _id: flowObj._id,
@@ -138,7 +137,7 @@ const formatFlow = (flow) => {
     triggerKeywords: flowObj.triggerKeywords,
     triggerType: flowObj.triggerType,
     status: flowObj.status,
-    nodes: uniqueNodes,
+    nodes: nodes,
     edges: flowObj.edges,
     settings: flowObj.settings,
     createdBy: flowObj.createdBy,
@@ -278,9 +277,13 @@ exports.getFlow = async (req, res, next) => {
       });
     }
 
+    const formattedFlow = formatFlow(flow);
+    console.log(`[getFlow] DB nodes count: ${flow.nodes ? flow.nodes.length : 0}`);
+    console.log(`[getFlow] API response nodes count: ${formattedFlow.nodes ? formattedFlow.nodes.length : 0}`);
+
     res.status(200).json({
       success: true,
-      flow: formatFlow(flow),
+      flow: formattedFlow,
     });
   } catch (error) {
     next(error);
