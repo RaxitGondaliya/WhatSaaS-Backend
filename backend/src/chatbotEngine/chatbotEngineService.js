@@ -67,11 +67,19 @@ class ChatbotEngineService {
             variables: { ...(chatSession.variables || {}) }
          };
 
-         if (profileName && !sessionAction.variables.customer_name) {
-             sessionAction.variables.customer_name = profileName;
+         const currentIndex = sessionFlow.nodes.findIndex(n => String(n.id) === String(chatSession.currentNodeId));
+
+         const actualCustomerName = profileName || conversation?.phoneNumber || 'Unknown';
+         if (!sessionAction.variables.customer_name) {
+             sessionAction.variables.customer_name = actualCustomerName;
          }
 
-         const varName = currentNode.variable || currentNode.data?.variable || 'answer';
+         let varName = currentNode.variable || currentNode.data?.variable || chatSession.targetVariable || 'answer';
+         if (currentIndex === 0) {
+             varName = 'selected_service';
+         } else if (currentIndex === sessionFlow.nodes.length - 1) {
+             varName = 'booking_confirmation';
+         }
 
          // A) Button Reply Handling
          if (triggerId) {
@@ -131,7 +139,6 @@ class ChatbotEngineService {
 
          // C) Proceed to Next Node if valid
          if (isValidSessionAction) {
-            const currentIndex = sessionFlow.nodes.findIndex(n => String(n.id) === String(chatSession.currentNodeId));
             
             if (!matchedNextNodeId) {
                 // Progression fix: currentNodeIndex + 1
@@ -148,7 +155,7 @@ class ChatbotEngineService {
             if (!targetNode && matchedNextNodeId == null && currentIndex === sessionFlow.nodes.length - 1) {
                 console.log("[DEBUG] Reached the end of the flow. Completing session.");
                 sessionAction.type = 'complete';
-                return { type: 'Complete', text: 'Tamari service request successfully submit thai gai 6e.\nAmari team tunk samay ma contact karse.', sessionAction };
+                return { type: 'NoReply', sessionAction };
             }
             
              if (targetNode) {

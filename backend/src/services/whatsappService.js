@@ -140,12 +140,17 @@ class WhatsappService {
                      });
                  }
 
+                 const addressParts = (action.variables.customer_address || '').split(' ').filter(Boolean);
+                 const parsedCity = addressParts.length > 0 ? addressParts[addressParts.length - 1] : '';
+
                  await Request.create({
                      businessId: business._id,
                      ownerId: business.ownerId || business._id,
                      contactId: contact._id,
-                     title: `Service Request from ${action.variables.customer_name || from}`,
-                     description: `Selected Service: ${action.variables.selected_service || ''}\nProblem: ${action.variables.problem_DESC || ''}\nAddress: ${action.variables.customer_address || ''}`,
+                     title: `${action.variables.selected_service || 'Service'} Service Request`,
+                     description: `Service: ${action.variables.selected_service || ''}\nProblem: ${action.variables.problem_DESC || ''}\nAddress: ${action.variables.customer_address || ''}\nCustomer: ${action.variables.customer_name || 'Unknown'}\nPhone: ${from}`,
+                     address: action.variables.customer_address || '',
+                     city: parsedCity,
                      category: 'service',
                      source: 'whatsapp',
                      status: 'pending'
