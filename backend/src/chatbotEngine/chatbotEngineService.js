@@ -64,7 +64,11 @@ class ChatbotEngineService {
           const replaceVars = (str) => {
              if (!str) return str;
              return str.replace(/\{{1,2}([^}]+)\}{1,2}/g, (match, key) => {
-                const k = key.trim();
+                let k = key.trim();
+                if (k === 'previous_button') {
+                   k = '__previous_button_selection';
+                   console.log(`[DEBUG] Interpolated Previous Button: ${sessionVars[k] || '""'}`);
+                }
                 return sessionVars[k] !== undefined ? sessionVars[k] : '';
              });
           };
@@ -128,7 +132,12 @@ class ChatbotEngineService {
                console.log(`DEBUG: Button matched: ${clickedButton.text}`);
                
                // Safe merge variables
-               sessionAction.variables = { ...sessionAction.variables, [varName]: clickedButton.text };
+               sessionAction.variables = { 
+                  ...sessionAction.variables, 
+                  [varName]: clickedButton.text,
+                  __previous_button_selection: clickedButton.text 
+               };
+               console.log(`[DEBUG] Previous Button Selection Saved: ${clickedButton.text}`);
                
                if (clickedButton.action === 'submit_request') {
                   sessionAction.type = 'complete';
