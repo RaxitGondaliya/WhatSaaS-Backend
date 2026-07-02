@@ -28,7 +28,8 @@ class ChatbotEngineService {
           sessionFlow.nodes.forEach((n, i) => { if (!n.id) n.id = `fallback_node_${i}`; });
           
           currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
-          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable)) {
+          const hasButtons = (currentNode?.data?.buttons || currentNode?.buttons || []).length > 0;
+          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable || currentNode.data?.variable || (currentNode.type === 'Text' && !hasButtons))) {
             isWaitingForInput = true;
           }
         }
@@ -108,9 +109,17 @@ class ChatbotEngineService {
             }
          }
          // B) Text Input Handling
-         else if (isWaitingForInput) {
+         else if (isWaitingForInput && messageText.trim() !== '') {
             console.log(`[Session Intercept] User text input captured for node: ${chatSession.currentNodeId}`);
-            sessionAction.variables[varName] = messageText;
+            
+            const saveVar = currentNode.variable || currentNode.data?.variable || chatSession.targetVariable || 'answer';
+            
+            console.log("Saving Variable:", saveVar);
+            console.log("User Input:", messageText);
+            
+            sessionAction.variables[saveVar] = messageText;
+            
+            console.log("Updated Session Variables:", sessionAction.variables);
             
             if (currentNode.nextMessageId) {
                matchedNextNodeId = currentNode.nextMessageId;
@@ -142,10 +151,11 @@ class ChatbotEngineService {
                 return { type: 'Complete', text: 'Tamari service request successfully submit thai gai 6e.\nAmari team tunk samay ma contact karse.', sessionAction };
             }
             
-            if (targetNode) {
-               sessionAction.currentNodeId = targetNode.id || targetNode._id;
+             if (targetNode) {
+                sessionAction.currentNodeId = targetNode.id || targetNode._id;
+                sessionAction.targetVariable = targetNode.variable || targetNode.data?.variable || 'answer';
 
-               console.log("Next Node:", targetNode);
+                console.log("Next Node:", targetNode);
                console.log("Saved Variables:", sessionAction.variables);
 
                const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
@@ -285,7 +295,7 @@ class ChatbotEngineService {
 
             const hasButtons = nodeButtons.length > 0;
             // Initiate session if the node needs user input or button response
-            const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
+            const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable || (targetNode.type === 'Text' && !hasButtons);
             if (isAsk || hasButtons) {
               sessionAction = {
                 type: 'create',
