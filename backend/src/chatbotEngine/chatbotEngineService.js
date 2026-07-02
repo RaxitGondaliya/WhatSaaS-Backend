@@ -208,6 +208,21 @@ class ChatbotEngineService {
             const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
             const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
 
+            let currentNodeId = targetNode.id || targetNode._id;
+            if (!currentNodeId) {
+               // Generate stable unique id if frontend nodes do not contain id
+               const nodeIndex = flow.nodes.findIndex(n => n === targetNode);
+               currentNodeId = nodeIndex >= 0 ? `fallback_node_${nodeIndex}` : null;
+            }
+
+            if (!currentNodeId) {
+               throw new Error("Flow node id missing");
+            }
+
+            console.log("Flow Nodes:", flow.nodes);
+            console.log("First Node:", targetNode);
+            console.log("Current Node ID:", currentNodeId);
+
             replyData = {
               type: targetNode.type || 'Text',
               text: nodeText,
@@ -221,7 +236,7 @@ class ChatbotEngineService {
               sessionAction = {
                 type: 'create',
                 flowId: flow._id,
-                currentNodeId: targetNode.id,
+                currentNodeId: currentNodeId,
                 isWaitingForInput: Boolean(isAsk),
                 targetVariable: targetNode.variable || targetNode.data?.variable || 'answer',
                 variables: chatSession ? chatSession.variables : {}
