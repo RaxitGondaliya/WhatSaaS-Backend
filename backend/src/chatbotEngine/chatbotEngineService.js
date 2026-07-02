@@ -52,9 +52,18 @@ class ChatbotEngineService {
           
           currentNode = nodeMap[chatSession.currentNodeId];
           const hasButtons = (currentNode?.data?.buttons || currentNode?.buttons || []).length > 0;
-          if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable || currentNode.data?.variable || (currentNode.type === 'Text' && !hasButtons))) {
-            isWaitingForInput = chatSession.waitingFor || (hasButtons ? 'button' : 'text');
+          const isTextNode = currentNode?.type === 'Text' || currentNode?.type === 'Input' || currentNode?.type === 'Ask Question' || currentNode?.is_ask_question || currentNode?.variable || currentNode?.data?.variable;
+          
+          if (hasButtons) {
+             isWaitingForInput = 'button';
+          } else if (isTextNode) {
+             isWaitingForInput = 'text';
           }
+          
+          console.log(`[DEBUG] Active Node Type: ${currentNode?.type || 'Unknown'}`);
+          console.log(`[DEBUG] Validation Mode: ${isWaitingForInput}`);
+          console.log(`[DEBUG] Free Text Allowed: ${isWaitingForInput === 'text'}`);
+          console.log(`[DEBUG] Button Validation Enabled: ${isWaitingForInput === 'button'}`);
         }
       }
 
@@ -224,6 +233,17 @@ class ChatbotEngineService {
 
                const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
                const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
+               
+               const hasNextButtons = nodeButtons.length > 0;
+               const isNextTextNode = targetNode.type === 'Text' || targetNode.type === 'Input' || targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.variable || targetNode.data?.variable;
+               
+               if (hasNextButtons) {
+                  sessionAction.waitingFor = 'button';
+               } else if (isNextTextNode) {
+                  sessionAction.waitingFor = 'text';
+               } else {
+                  sessionAction.waitingFor = '';
+               }
 
                let replyData = {
                  type: targetNode.type || 'Text',
