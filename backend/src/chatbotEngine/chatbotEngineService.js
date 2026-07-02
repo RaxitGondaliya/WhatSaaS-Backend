@@ -13,14 +13,8 @@ class ChatbotEngineService {
 
       const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
 
-      // Check if the user explicitly typed a global trigger keyword (this overrides active sessions)
+      // We will perform Global Keyword matching ONLY if there's no active session
       let globalKeywordFlow = null;
-      if (!triggerId) {
-        globalKeywordFlow = activeFlows.find(f => {
-           const isKeyword = String(f.triggerType).toLowerCase() === 'keywords' || String(f.triggerType).toLowerCase() === 'both';
-           return isKeyword && (f.triggerKeywords || []).map(k => k.toLowerCase().trim()).includes(cleanText);
-        });
-      }
 
       // 1. Session & Input Node Check (Dynamic)
       let isWaitingForInput = false;
@@ -30,6 +24,9 @@ class ChatbotEngineService {
       if (chatSession && chatSession.currentNodeId) {
         sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
         if (sessionFlow && sessionFlow.nodes) {
+          // IMPORTANT: Fallback ids to ensure missing db ids map properly
+          sessionFlow.nodes.forEach((n, i) => { if (!n.id) n.id = `fallback_node_${i}`; });
+          
           currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
           if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable)) {
             isWaitingForInput = true;
@@ -57,7 +54,10 @@ class ChatbotEngineService {
       };
 
       // 2. Dynamic Routing (Button Click or Text Input in Active Session)
-      if (chatSession && currentNode && !globalKeywordFlow) {
+      if (chatSession && currentNode) {
+         console.log("Loaded Existing Session:", chatSession);
+         console.log("Current Node ID:", chatSession.currentNodeId);
+         console.log("Current Node:", currentNode);
          let matchedNextNodeId = null;
          let isValidSessionAction = false;
          
@@ -145,8 +145,6 @@ class ChatbotEngineService {
             if (targetNode) {
                sessionAction.currentNodeId = targetNode.id || targetNode._id;
 
-               console.log("Existing Session:", chatSession);
-               console.log("Current Node:", currentNode);
                console.log("Next Node:", targetNode);
                console.log("Saved Variables:", sessionAction.variables);
 
@@ -184,16 +182,16 @@ class ChatbotEngineService {
       }
 
       // 3. New Flow Routing (Keywords or Buttons)
+      if (!triggerId) {
+        globalKeywordFlow = activeFlows.find(f => {
+           const isKeyword = String(f.triggerType).toLowerCase() === 'keywords' || String(f.triggerType).toLowerCase() === 'both';
+           return isKeyword && (f.triggerKeywords || []).map(k => k.toLowerCase().trim()).includes(cleanText);
+        });
+      }
       
-      // If there's a global keyword override, it takes absolute precedence
       if (globalKeywordFlow) {
         flow = globalKeywordFlow;
         matchReason = 'keyword';
-        // Force clear any active session because a global trigger was hit
-        if (chatSession) {
-           sessionAction = { type: 'delete' };
-           console.log(`[DEBUG] Global trigger found for "${messageText}". Clearing existing session.`);
-        }
       } else if (triggerId) {
         const cleanTrigger = String(triggerId).trim();
         flow = activeFlows.find(f => f.nodes && f.nodes.some(n => 
