@@ -226,7 +226,7 @@ class WhatsappService {
         
         for (let i = 0; i < buttonCount; i++) {
           const btn = buttons[i];
-          const payloadButtonId = String(btn.id || `btn_${i}`).trim();
+          const payloadButtonId = String(btn.buttonId || btn.id || `btn_${i}`).trim();
           console.log("Saved Button ID:", btn.id);
           console.log("WhatsApp Payload Button ID:", payloadButtonId);
           buttonsPayload.push({

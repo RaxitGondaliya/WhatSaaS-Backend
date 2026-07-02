@@ -76,18 +76,20 @@ class ChatbotEngineService {
          if (triggerId) {
             console.log("DEBUG: Looking for button with ID or text:", triggerId, messageText);
             const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
-            const clickedButton = nodeButtons.find(b => String(b.id) === String(triggerId).trim() || b.text === messageText);
+            const clickedButton = nodeButtons.find(b => 
+               String(b.buttonId || b.id) === String(triggerId).trim() || b.text === messageText
+            );
             
             if (clickedButton) {
                console.log(`DEBUG: Button matched: ${clickedButton.text}`);
-               console.log("Clicked Button ID:", clickedButton.id);
+               console.log("Clicked Button ID:", clickedButton.buttonId || clickedButton.id);
                
                sessionAction.variables[varName] = clickedButton.text;
                
                // 5. Match using clickedButtonId === node.data.triggerId
                const nextNodeByTrigger = sessionFlow.nodes.find(n => {
                    const nTriggerId = n.triggerId || n.data?.triggerId;
-                   return nTriggerId && String(nTriggerId) === String(clickedButton.id);
+                   return nTriggerId && String(nTriggerId) === String(clickedButton.buttonId || clickedButton.id);
                });
 
                if (nextNodeByTrigger) {
