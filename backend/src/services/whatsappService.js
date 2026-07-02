@@ -151,11 +151,11 @@ class WhatsappService {
                      ownerId: business.ownerId || business._id,
                      contactId: contact._id,
                      title: `${action.variables.selected_service || 'Service'} Service Request`,
-                     customerName: profileName || action.variables.customer_name || from,
+                     customerName: profileName || from,
                      phone: from,
                      address: action.variables.customer_address || "",
                      city: extractCity(action.variables.customer_address) || "",
-                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${profileName || action.variables.customer_name || ""}\nPhone: ${from}`,
+                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_desc || action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${profileName || from}\nPhone: ${from}`,
                      status: "pending",
                      source: "whatsapp",
                      category: "service"

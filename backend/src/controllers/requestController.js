@@ -345,15 +345,38 @@ exports.getRequests = async (req, res, next) => {
       dateFrom,
       dateTo,
     } = req.query;
-    const query = { businessId: scope.businessId };
 
-    if (status) query.status = normalizeText(status);
+    console.log(`[getRequests] Received filter status: ${status}`);
+
+    const baseQuery = { businessId: scope.businessId };
+    const createdAtFilter = getCreatedAtFilter({ dateFilter, dateFrom, dateTo });
+    if (createdAtFilter) baseQuery.createdAt = createdAtFilter;
+
+    // 1. STATS QUERY (UNFILTERED BY STATUS)
+    const totalRequests = await Request.countDocuments(baseQuery);
+    const pendingCount = await Request.countDocuments({ ...baseQuery, status: 'pending' });
+    const inProgressCount = await Request.countDocuments({ ...baseQuery, status: 'in_progress' });
+    const completedCount = await Request.countDocuments({ ...baseQuery, status: 'completed' });
+    const cancelledCount = await Request.countDocuments({ ...baseQuery, status: 'cancelled' });
+    const pendingPaymentCount = await Request.countDocuments({ ...baseQuery, status: 'completed', paymentStatus: 'pending' });
+
+    console.log(`[getRequests] Global Counts -> Total: ${totalRequests}, Pending: ${pendingCount}, In Progress: ${inProgressCount}, Completed: ${completedCount}, Cancelled: ${cancelledCount}`);
+
+    // 2. LIST FILTERING
+    const query = { ...baseQuery };
+
+    if (status) {
+      if (status === 'pending_payments' || status === 'pending_payment') {
+        query.status = 'completed';
+        query.paymentStatus = 'pending';
+      } else {
+        query.status = normalizeText(status);
+      }
+    }
+
     if (priority) query.priority = normalizeText(priority);
     if (source) query.source = normalizeText(source);
     if (contactId) query.contactId = contactId;
-
-    const createdAtFilter = getCreatedAtFilter({ dateFilter, dateFrom, dateTo });
-    if (createdAtFilter) query.createdAt = createdAtFilter;
 
     if (search) {
       const searchRegex = new RegExp(search, 'i');
@@ -369,10 +392,22 @@ exports.getRequests = async (req, res, next) => {
       .populate('assignedTo', 'fullName email role')
       .sort({ createdAt: -1 });
 
+    const returnedRequests = requests.map(formatRequest);
+    
+    console.log(`[getRequests] Returning ${requests.length} requests`);
+    
     res.status(200).json({
       success: true,
       count: requests.length,
-      requests: requests.map(formatRequest),
+      requests: returnedRequests,
+      stats: {
+         total: totalRequests,
+         pending: pendingCount,
+         in_progress: inProgressCount,
+         completed: completedCount,
+         cancelled: cancelledCount,
+         pending_payments: pendingPaymentCount
+      }
     });
   } catch (error) {
     next(error);
