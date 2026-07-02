@@ -80,8 +80,21 @@ class ChatbotEngineService {
             
             if (clickedButton) {
                console.log(`DEBUG: Button matched: ${clickedButton.text}`);
+               console.log("Clicked Button ID:", clickedButton.id);
+               
                sessionAction.variables[varName] = clickedButton.text;
-               if (clickedButton.nextMessageId) {
+               
+               // 5. Match using clickedButtonId === node.data.triggerId
+               const nextNodeByTrigger = sessionFlow.nodes.find(n => {
+                   const nTriggerId = n.triggerId || n.data?.triggerId;
+                   return nTriggerId && String(nTriggerId) === String(clickedButton.id);
+               });
+
+               if (nextNodeByTrigger) {
+                  matchedNextNodeId = nextNodeByTrigger.id || nextNodeByTrigger._id;
+                  console.log("Next Node Trigger ID:", nextNodeByTrigger.triggerId || nextNodeByTrigger.data?.triggerId);
+                  isValidSessionAction = true;
+               } else if (clickedButton.nextMessageId) {
                   matchedNextNodeId = clickedButton.nextMessageId;
                   isValidSessionAction = true;
                } else if (currentNode.nextMessageId) {
@@ -180,7 +193,11 @@ class ChatbotEngineService {
            console.log(`[DEBUG] Global trigger found for "${messageText}". Clearing existing session.`);
         }
       } else if (triggerId) {
-        flow = activeFlows.find(f => f.nodes && f.nodes.some(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim()));
+        const cleanTrigger = String(triggerId).trim();
+        flow = activeFlows.find(f => f.nodes && f.nodes.some(n => 
+           n.triggerType === 'button_click' && 
+           (n.triggerId === cleanTrigger || n.data?.triggerId === cleanTrigger)
+        ));
         if (flow) {
           matchReason = 'button_click';
         } else {
@@ -221,7 +238,11 @@ class ChatbotEngineService {
         } else if (flow.nodes && flow.nodes.length > 0) {
           
           if (triggerId) {
-            targetNode = flow.nodes.find(n => n.triggerType === 'button_click' && n.triggerId === String(triggerId).trim());
+            const cleanTrigger = String(triggerId).trim();
+            targetNode = flow.nodes.find(n => 
+               n.triggerType === 'button_click' && 
+               (n.triggerId === cleanTrigger || n.data?.triggerId === cleanTrigger)
+            );
           }
           if (!targetNode) {
              // START NODE SELECTION
