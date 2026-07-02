@@ -226,11 +226,14 @@ class WhatsappService {
         
         for (let i = 0; i < buttonCount; i++) {
           const btn = buttons[i];
+          const payloadButtonId = String(btn.id || `btn_${i}`).trim();
+          console.log("Saved Button ID:", btn.id);
+          console.log("WhatsApp Payload Button ID:", payloadButtonId);
           buttonsPayload.push({
             type: 'reply',
             reply: {
-              id: btn.id || btn.nextMessageId || btn.nextFlowKeyword || `btn_${i}`,
-              title: (btn.text || `Option ${i + 1}`).substring(0, 20) 
+              id: payloadButtonId,
+              title: String(btn.text || btn.label || `Option ${i + 1}`).substring(0, 20) 
             }
           });
         }

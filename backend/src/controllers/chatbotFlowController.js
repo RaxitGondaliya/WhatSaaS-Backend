@@ -238,7 +238,10 @@ exports.createFlow = async (req, res, next) => {
       triggerKeywords: normalizeTriggerKeywords(triggerKeywords),
       triggerType: normalizedTriggerType,
       status: normalizedStatus,
-      nodes: normalizeArray(nodes),
+      nodes: normalizeArray(nodes).map((n, i) => {
+        if (!n.id) n.id = `node_${i}`;
+        return n;
+      }),
       edges: normalizeArray(edges),
       settings: normalizeObject(settings),
       createdBy: scope.currentUser._id,
@@ -362,7 +365,10 @@ exports.updateFlow = async (req, res, next) => {
     }
 
     if (updates.nodes !== undefined) {
-      updates.nodes = normalizeArray(updates.nodes);
+      updates.nodes = normalizeArray(updates.nodes).map((n, i) => {
+        if (!n.id) n.id = `node_${i}`;
+        return n;
+      });
     }
 
     if (updates.edges !== undefined) {
@@ -504,6 +510,10 @@ exports.addNode = async (req, res, next) => {
     try {
         const { flowId } = req.params;
         const newNode = req.body;
+        
+        if (!newNode.id) {
+           newNode.id = `node_${Date.now()}`;
+        }
         
         const scope = await getFlowScope(req.user.id);
         if (sendScopeError(res, scope)) return;
