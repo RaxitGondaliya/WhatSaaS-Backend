@@ -1,7 +1,7 @@
 const ChatbotFlow = require('../models/ChatbotFlow');
 
 class ChatbotEngineService {
-  async processMessage(messageText, triggerId, business, conversation, chatSession) {
+  async processMessage(messageText, triggerId, business, conversation, chatSession, profileName = '') {
     try {
       console.log("DEBUG: Processing message from:", conversation?.phoneNumber || 'Unknown', "Body:", messageText, "Business:", business._id);
 
