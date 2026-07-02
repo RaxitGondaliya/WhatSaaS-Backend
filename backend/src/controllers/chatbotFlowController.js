@@ -127,6 +127,8 @@ const formatFlow = (flow) => {
     return node;
   });
 
+  const uniqueNodes = Array.from(new Map(nodes.map(node => [node.id, node])).values());
+
   return {
     _id: flowObj._id,
     businessId: flowObj.businessId,
@@ -136,7 +138,7 @@ const formatFlow = (flow) => {
     triggerKeywords: flowObj.triggerKeywords,
     triggerType: flowObj.triggerType,
     status: flowObj.status,
-    nodes: nodes,
+    nodes: uniqueNodes,
     edges: flowObj.edges,
     settings: flowObj.settings,
     createdBy: flowObj.createdBy,
@@ -492,6 +494,49 @@ exports.deleteNode = async (req, res) => {
 };
 
 /**
+ * POST /api/chatbot-flows/:flowId/nodes
+ * Add a new node to the flow, updating if it already exists.
+ */
+exports.addNode = async (req, res, next) => {
+    try {
+        const { flowId } = req.params;
+        const newNode = req.body;
+        
+        const scope = await getFlowScope(req.user.id);
+        if (sendScopeError(res, scope)) return;
+
+        const flow = await ChatbotFlow.findOne(buildScopedQuery(scope, { _id: flowId }));
+        if (!flow) {
+            return res.status(404).json({ success: false, message: 'Chatbot flow not found' });
+        }
+        
+        const exists = flow.nodes.find(n => String(n.id) === String(newNode.id));
+        
+        let updatedFlow;
+        if (exists) {
+            updatedFlow = await ChatbotFlow.findOneAndUpdate(
+                buildScopedQuery(scope, { _id: flowId, 'nodes.id': newNode.id }),
+                { $set: { 'nodes.$': newNode } },
+                { new: true }
+            );
+        } else {
+            updatedFlow = await ChatbotFlow.findOneAndUpdate(
+                buildScopedQuery(scope, { _id: flowId }),
+                { $push: { nodes: newNode } },
+                { new: true }
+            );
+        }
+
+        res.status(200).json({
+            success: true,
+            flow: formatFlow(updatedFlow)
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+/**
  * GET /api/chatbot-flows/:flowId/deduplicate
  * Temporary endpoint to deduplicate nodes in a flow.
  */
@@ -508,23 +553,19 @@ exports.deduplicateNodes = async (req, res) => {
             return res.status(200).json({ success: true, message: 'No nodes to deduplicate', flow: formatFlow(flow) });
         }
         
-        const uniqueNodesMap = new Map();
-        flow.nodes.forEach(node => {
-            if (!uniqueNodesMap.has(String(node.id))) {
-                uniqueNodesMap.set(String(node.id), node);
-            }
-        });
+        const uniqueNodes = Array.from(new Map(flow.nodes.map(node => [node.id, node])).values());
+        const removedCount = flow.nodes.length - uniqueNodes.length;
         
-        const deduplicatedNodes = Array.from(uniqueNodesMap.values());
-        const removedCount = flow.nodes.length - deduplicatedNodes.length;
-        
-        flow.nodes = deduplicatedNodes;
-        await flow.save();
+        const updatedFlow = await ChatbotFlow.findByIdAndUpdate(
+            flowId, 
+            { $set: { nodes: uniqueNodes } },
+            { new: true }
+        );
         
         res.status(200).json({
             success: true,
             message: `Successfully removed ${removedCount} duplicate nodes.`,
-            flow: formatFlow(flow)
+            flow: formatFlow(updatedFlow)
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
