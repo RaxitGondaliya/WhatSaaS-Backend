@@ -140,21 +140,32 @@ class WhatsappService {
                      });
                  }
 
-                 const addressParts = (action.variables.customer_address || '').split(' ').filter(Boolean);
-                 const parsedCity = addressParts.length > 0 ? addressParts[addressParts.length - 1] : '';
+                 const extractCity = (address) => {
+                     if (!address) return "";
+                     const parts = address.trim().split(" ");
+                     return parts[parts.length - 1];
+                 };
 
-                 await Request.create({
+                 const requestData = {
                      businessId: business._id,
                      ownerId: business.ownerId || business._id,
                      contactId: contact._id,
                      title: `${action.variables.selected_service || 'Service'} Service Request`,
-                     description: `Service: ${action.variables.selected_service || ''}\nProblem: ${action.variables.problem_DESC || ''}\nAddress: ${action.variables.customer_address || ''}\nCustomer: ${action.variables.customer_name || 'Unknown'}\nPhone: ${from}`,
-                     address: action.variables.customer_address || '',
-                     city: parsedCity,
-                     category: 'service',
-                     source: 'whatsapp',
-                     status: 'pending'
-                 });
+                     customerName: profileName || action.variables.customer_name || from,
+                     phone: from,
+                     address: action.variables.customer_address || "",
+                     city: extractCity(action.variables.customer_address) || "",
+                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${profileName || action.variables.customer_name || ""}\nPhone: ${from}`,
+                     status: "pending",
+                     source: "whatsapp",
+                     category: "service"
+                 };
+
+                 console.log("Final Session Variables:", action.variables);
+                 console.log("Request Data:", requestData);
+                 console.log("WhatsApp Profile Name:", profileName);
+
+                 await Request.create(requestData);
                  await ChatSession.deleteOne({ _id: chatSession._id });
                  console.log(`[Session] Flow completed and request created for ${from}`);
               }

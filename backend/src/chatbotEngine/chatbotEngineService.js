@@ -75,10 +75,12 @@ class ChatbotEngineService {
          }
 
          let varName = currentNode.variable || currentNode.data?.variable || chatSession.targetVariable || 'answer';
-         if (currentIndex === 0) {
-             varName = 'selected_service';
-         } else if (currentIndex === sessionFlow.nodes.length - 1) {
+         
+         const upperText = messageText.toUpperCase().trim();
+         if (upperText === 'YES' || upperText === 'NO' || upperText === 'CONFIRM') {
              varName = 'booking_confirmation';
+         } else if (upperText === 'AC' || upperText === 'FRIDGE') {
+             varName = 'selected_service';
          }
 
          // A) Button Reply Handling
