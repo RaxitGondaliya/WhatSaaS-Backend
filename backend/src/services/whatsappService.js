@@ -27,6 +27,8 @@ class WhatsappService {
         const from = message.from; // sender phone number
         const messageId = message.id; // Meta message ID
         
+        const profileName = value.contacts && value.contacts[0] && value.contacts[0].profile ? value.contacts[0].profile.name : '';
+        
         // 1. Multi-Tenant Lookup: Find the specific SaaS business by their WA Phone ID
         const businessData = await businessService.getBusinessByPhoneId(phone_number_id);
         if (!businessData) {
@@ -84,11 +86,20 @@ class WhatsappService {
             );
 
             // 3.5 Check for active ChatSession
-            const chatSession = await ChatSession.findOne({ phoneNumber: from, businessId: business._id });
+            const SESSION_TIMEOUT = 30 * 60 * 1000;
+            let chatSession = await ChatSession.findOne({ phoneNumber: from, businessId: business._id });
+            if (chatSession) {
+                const now = new Date();
+                if (now - chatSession.updatedAt > SESSION_TIMEOUT) {
+                    console.log(`[Session] Session expired for ${from}. Starting fresh.`);
+                    await ChatSession.deleteOne({ _id: chatSession._id });
+                    chatSession = null;
+                }
+            }
 
             // 4. Generate dynamic reply using the new Chatbot Engine
             console.log('Generating reply from DB...');
-            const replyData = await chatbotEngineService.processMessage(msg_body, triggerId, business, conversation, chatSession);
+            const replyData = await chatbotEngineService.processMessage(msg_body, triggerId, business, conversation, chatSession, profileName);
 
             if (replyData && replyData.sessionAction) {
               const action = replyData.sessionAction;
@@ -114,6 +125,33 @@ class WhatsappService {
               } else if (action.type === 'delete' && chatSession) {
                  await ChatSession.deleteOne({ _id: chatSession._id });
                  console.log(`[Session] Deleted session for ${from}`);
+              } else if (action.type === 'complete' && chatSession) {
+                 const mongoose = require('mongoose');
+                 const Request = require('../models/Request');
+                 const Contact = require('../models/Contact');
+                 
+                 let contact = await Contact.findOne({ phone: from, businessId: business._id });
+                 if (!contact) {
+                     contact = await Contact.create({
+                         businessId: business._id,
+                         ownerId: business.ownerId || business._id,
+                         name: action.variables.customer_name || 'WhatsApp Customer',
+                         phone: from
+                     });
+                 }
+
+                 await Request.create({
+                     businessId: business._id,
+                     ownerId: business.ownerId || business._id,
+                     contactId: contact._id,
+                     title: `Service Request from ${action.variables.customer_name || from}`,
+                     description: `Selected Service: ${action.variables.selected_service || ''}\nProblem: ${action.variables.problem_DESC || ''}\nAddress: ${action.variables.customer_address || ''}`,
+                     category: 'service',
+                     source: 'whatsapp',
+                     status: 'pending'
+                 });
+                 await ChatSession.deleteOne({ _id: chatSession._id });
+                 console.log(`[Session] Flow completed and request created for ${from}`);
               }
             }
 
@@ -191,8 +229,7 @@ class WhatsappService {
           buttonsPayload.push({
             type: 'reply',
             reply: {
-              // Format expected by the DB (e.g., "legacy_1782889143918")
-              id: `legacy_${btn.id || btn.nextMessageId || btn.nextFlowKeyword || i}`,
+              id: btn.id || btn.nextMessageId || btn.nextFlowKeyword || `btn_${i}`,
               title: (btn.text || `Option ${i + 1}`).substring(0, 20) 
             }
           });

@@ -66,42 +66,75 @@ class ChatbotEngineService {
             variables: { ...(chatSession.variables || {}) }
          };
 
+         if (profileName && !sessionAction.variables.customer_name) {
+             sessionAction.variables.customer_name = profileName;
+         }
+
+         const varName = currentNode.variable || currentNode.data?.variable || 'answer';
+
          // A) Button Reply Handling
          if (triggerId) {
-            console.log("DEBUG: Looking for button with ID:", triggerId);
+            console.log("DEBUG: Looking for button with ID or text:", triggerId, messageText);
             const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
-            const clickedButton = nodeButtons.find(b => String(b.id) === String(triggerId).trim());
+            const clickedButton = nodeButtons.find(b => String(b.id) === String(triggerId).trim() || b.text === messageText);
             
-            if (clickedButton && clickedButton.nextMessageId) {
-               console.log("DEBUG: Button matched. Next node:", clickedButton.nextMessageId);
-               matchedNextNodeId = clickedButton.nextMessageId;
-               isValidSessionAction = true;
-            } else if (currentNode.nextMessageId) {
-               console.log("DEBUG: Button has no nextMessageId. Using node's default transition.");
-               matchedNextNodeId = currentNode.nextMessageId;
-               isValidSessionAction = true;
+            if (clickedButton) {
+               console.log(`DEBUG: Button matched: ${clickedButton.text}`);
+               sessionAction.variables[varName] = clickedButton.text;
+               if (clickedButton.nextMessageId) {
+                  matchedNextNodeId = clickedButton.nextMessageId;
+                  isValidSessionAction = true;
+               } else if (currentNode.nextMessageId) {
+                  matchedNextNodeId = currentNode.nextMessageId;
+                  isValidSessionAction = true;
+               } else {
+                  isValidSessionAction = true; // Fallback to index + 1
+               }
             }
          }
          // B) Text Input Handling
          else if (isWaitingForInput) {
             console.log(`[Session Intercept] User text input captured for node: ${chatSession.currentNodeId}`);
-            const varName = currentNode.variable || currentNode.data?.variable || 'answer';
             sessionAction.variables[varName] = messageText;
             
             if (currentNode.nextMessageId) {
                matchedNextNodeId = currentNode.nextMessageId;
                isValidSessionAction = true;
+            } else {
+               isValidSessionAction = true; // Fallback to index + 1
             }
          }
 
          // C) Proceed to Next Node if valid
-         if (isValidSessionAction && matchedNextNodeId) {
-            targetNode = sessionFlow.nodes.find(n => String(n.id) === String(matchedNextNodeId));
+         if (isValidSessionAction) {
+            const currentIndex = sessionFlow.nodes.findIndex(n => String(n.id) === String(chatSession.currentNodeId));
+            
+            if (!matchedNextNodeId) {
+                // Progression fix: currentNodeIndex + 1
+                if (currentIndex >= 0 && currentIndex < sessionFlow.nodes.length - 1) {
+                    matchedNextNodeId = sessionFlow.nodes[currentIndex + 1].id;
+                }
+            }
+
+            if (matchedNextNodeId) {
+                targetNode = sessionFlow.nodes.find(n => String(n.id) === String(matchedNextNodeId));
+            }
+
+            // G) Flow Completion Check
+            if (!targetNode && matchedNextNodeId == null && currentIndex === sessionFlow.nodes.length - 1) {
+                console.log("[DEBUG] Reached the end of the flow. Completing session.");
+                sessionAction.type = 'complete';
+                return { type: 'Complete', text: 'Tamari service request successfully submit thai gai 6e.\nAmari team tunk samay ma contact karse.', sessionAction };
+            }
             
             if (targetNode) {
-               sessionAction.currentNodeId = matchedNextNodeId;
+               sessionAction.currentNodeId = targetNode.id || targetNode._id;
 
-               console.log("DEBUG: Loading node content:", targetNode.data?.text || targetNode.text);
+               console.log("Existing Session:", chatSession);
+               console.log("Current Node:", currentNode);
+               console.log("Next Node:", targetNode);
+               console.log("Saved Variables:", sessionAction.variables);
+
                const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
                const nodeButtons = targetNode.data?.buttons || targetNode.buttons || [];
 
@@ -111,27 +144,27 @@ class ChatbotEngineService {
                  buttons: nodeButtons
                };
 
-               const hasButtons = nodeButtons.length > 0;
-               const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable;
-               if (!(isAsk || hasButtons)) {
-                 sessionAction.type = 'delete';
-               }
-
                replyData.sessionAction = sessionAction;
                console.log(`[Dynamic Routing] Proceeding to next message: ${targetNode.id}`);
                return interpolate(replyData, sessionAction.variables);
             } else {
-               console.error(`[Error] Target node ${matchedNextNodeId} not found. Path is broken.`);
+               console.error(`[Error] Target node not found. Path is broken.`);
                sessionAction.type = 'delete';
                return { type: 'Text', text: 'Something went wrong processing your request. Please try again.', sessionAction };
             }
          }
 
-         // If it's a random message in a non-input node, let it fall through to New Flow Routing.
-         // Otherwise, if it was an invalid button or input without a path, end the session.
-         if (triggerId || isWaitingForInput) {
-            console.log(`[DEBUG] Flow ended or invalid state. Clearing session.`);
-            return { type: 'NoReply', sessionAction: { type: 'delete' } };
+         // If we reach here, it means we have an active session but the input didn't match the expected button/text
+         if (chatSession && !isValidSessionAction) {
+             console.log(`[DEBUG] Invalid input for current session. Repeating current node.`);
+             const nodeText = currentNode.data?.text || currentNode.text || currentNode.data?.message || '';
+             const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
+             return interpolate({
+                 type: currentNode.type || 'Text',
+                 text: "Please provide a valid response.\n\n" + nodeText,
+                 buttons: nodeButtons,
+                 sessionAction: { type: 'update', variables: chatSession.variables }
+             }, chatSession.variables);
          }
       }
 
