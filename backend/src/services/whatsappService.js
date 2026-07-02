@@ -111,20 +111,22 @@ class WhatsappService {
                    currentFlowId: action.flowId,
                    currentNodeId: action.currentNodeId,
                    variables: action.variables || {},
-                   isWaitingForInput: action.isWaitingForInput || false,
-                   targetVariable: action.targetVariable || ''
+                   waitingFor: action.waitingFor || '',
+                   targetVariable: action.targetVariable || '',
+                   stepCount: action.stepCount || 1
                  });
                  console.log(`[Session] Created new session for ${from}`);
               } else if (action.type === 'update' && chatSession) {
                  chatSession.currentNodeId = action.currentNodeId || chatSession.currentNodeId;
                  chatSession.variables = action.variables;
-                 if (action.isWaitingForInput !== undefined) chatSession.isWaitingForInput = action.isWaitingForInput;
+                 if (action.waitingFor !== undefined) chatSession.waitingFor = action.waitingFor;
                  if (action.targetVariable !== undefined) chatSession.targetVariable = action.targetVariable;
+                 if (action.stepCount !== undefined) chatSession.stepCount = action.stepCount;
                  await chatSession.save();
                  console.log(`[Session] Updated session for ${from}`);
-              } else if (action.type === 'delete' && chatSession) {
-                 await ChatSession.deleteOne({ _id: chatSession._id });
-                 console.log(`[Session] Deleted session for ${from}`);
+              } else if (action.type === 'delete' || action.type === 'cancel') {
+                 if (chatSession) await ChatSession.deleteOne({ _id: chatSession._id });
+                 console.log(`[Session] Deleted session for ${from} due to ${action.type}`);
               } else if (action.type === 'complete' && chatSession) {
                  const mongoose = require('mongoose');
                  const Request = require('../models/Request');
@@ -151,11 +153,11 @@ class WhatsappService {
                      ownerId: business.ownerId || business._id,
                      contactId: contact._id,
                      title: `${action.variables.selected_service || 'Service'} Service Request`,
-                     customerName: profileName || from,
+                     customerName: action.variables.customer_name || profileName || from,
                      phone: from,
                      address: action.variables.customer_address || "",
                      city: extractCity(action.variables.customer_address) || "",
-                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_desc || action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${profileName || from}\nPhone: ${from}`,
+                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_desc || action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${action.variables.customer_name || profileName || from}\nPhone: ${from}`,
                      status: "pending",
                      source: "whatsapp",
                      category: "service"

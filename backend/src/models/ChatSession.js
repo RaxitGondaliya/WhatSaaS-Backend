@@ -30,8 +30,16 @@ const chatSessionSchema = new mongoose.Schema(
       type: Boolean,
       default: false
     },
+    waitingFor: {
+      type: String, // 'text' or 'button'
+      default: ''
+    },
     targetVariable: {
       type: String
+    },
+    stepCount: {
+      type: Number,
+      default: 0
     }
   },
   {

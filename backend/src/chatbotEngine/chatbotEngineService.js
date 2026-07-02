@@ -11,6 +11,25 @@ class ChatbotEngineService {
       let targetNode = null;
       let sessionAction = null;
 
+      // 0. Global Control Keywords Intercept
+      const globalCommands = ['stop', 'cancel', 'restart', 'menu', 'hi', 'hii'];
+      if (globalCommands.includes(cleanText)) {
+         if (['stop', 'cancel'].includes(cleanText)) {
+            console.log(`[Global Command] ${cleanText} triggered. Cancelling session.`);
+            return {
+               type: 'Text',
+               text: 'Conversation cancelled.',
+               sessionAction: chatSession ? { type: 'delete' } : null
+            };
+         } else if (['restart', 'menu', 'hi', 'hii'].includes(cleanText)) {
+            console.log(`[Global Command] ${cleanText} triggered. Restarting flow.`);
+            if (chatSession) {
+               // We will signal whatsappService to delete old session and start fresh
+               chatSession = null;
+            }
+         }
+      }
+
       const activeFlows = await ChatbotFlow.find({ businessId: business._id, status: 'active' });
 
       // We will perform Global Keyword matching ONLY if there's no active session
@@ -25,12 +44,16 @@ class ChatbotEngineService {
         sessionFlow = await ChatbotFlow.findById(chatSession.currentFlowId);
         if (sessionFlow && sessionFlow.nodes) {
           // IMPORTANT: Fallback ids to ensure missing db ids map properly
-          sessionFlow.nodes.forEach((n, i) => { if (!n.id) n.id = `fallback_node_${i}`; });
+          let nodeMap = {};
+          sessionFlow.nodes.forEach((n, i) => { 
+             if (!n.id) n.id = `fallback_node_${i}`; 
+             nodeMap[n.id] = n;
+          });
           
-          currentNode = sessionFlow.nodes.find(n => String(n.id) === String(chatSession.currentNodeId));
+          currentNode = nodeMap[chatSession.currentNodeId];
           const hasButtons = (currentNode?.data?.buttons || currentNode?.buttons || []).length > 0;
           if (currentNode && (currentNode.type === 'Ask Question' || currentNode.is_ask_question || currentNode.variable || currentNode.data?.variable || (currentNode.type === 'Text' && !hasButtons))) {
-            isWaitingForInput = true;
+            isWaitingForInput = chatSession.waitingFor || (hasButtons ? 'button' : 'text');
           }
         }
       }
@@ -38,13 +61,13 @@ class ChatbotEngineService {
       // Helper function for dynamic variable interpolation {{variable}}
       const interpolate = (data, vars) => {
          const sessionVars = vars || {};
-         const replaceVars = (str) => {
-            if (!str) return str;
-            return str.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
-               const k = key.trim();
-               return sessionVars[k] !== undefined ? sessionVars[k] : match;
-            });
-         };
+          const replaceVars = (str) => {
+             if (!str) return str;
+             return str.replace(/\{{1,2}([^}]+)\}{1,2}/g, (match, key) => {
+                const k = key.trim();
+                return sessionVars[k] !== undefined ? sessionVars[k] : '';
+             });
+          };
          
          if (data.text) data.text = replaceVars(data.text);
          if (data.caption) data.caption = replaceVars(data.caption);
@@ -62,52 +85,60 @@ class ChatbotEngineService {
          let matchedNextNodeId = null;
          let isValidSessionAction = false;
          
+         const stepCount = (chatSession.stepCount || 0) + 1;
+         if (stepCount > 50) {
+            console.error(`[Error] Infinite loop detected for session ${chatSession._id}. Terminating.`);
+            return { type: 'Text', text: 'Conversation ended due to unexpected loop.', sessionAction: { type: 'delete' } };
+         }
+
          sessionAction = {
             type: 'update',
-            variables: { ...(chatSession.variables || {}) }
+            variables: { ...(chatSession.variables || {}) },
+            stepCount
          };
 
          const currentIndex = sessionFlow.nodes.findIndex(n => String(n.id) === String(chatSession.currentNodeId));
 
-         const actualCustomerName = profileName || conversation?.phoneNumber || 'Unknown';
-         if (!sessionAction.variables.customer_name) {
-             sessionAction.variables.customer_name = actualCustomerName;
-         }
+         // 11. CUSTOMER NAME FIX: Priority -> profileName -> session -> empty string
+         const actualCustomerName = profileName || chatSession.variables?.customer_name || '';
+         sessionAction.variables.customer_name = actualCustomerName;
 
          let varName = currentNode.variable || currentNode.data?.variable || chatSession.targetVariable || 'answer';
          
          const upperText = messageText.toUpperCase().trim();
-         if (upperText === 'YES' || upperText === 'NO' || upperText === 'CONFIRM') {
-             varName = 'booking_confirmation';
-         } else if (upperText === 'AC' || upperText === 'FRIDGE') {
-             varName = 'selected_service';
-         }
+         // Removed the explicit YES/NO/AC/FRIDGE hardcode to fully support DB-driven routing
 
          // A) Button Reply Handling
-         if (triggerId) {
+         if (triggerId || (isWaitingForInput === 'button')) {
             console.log("DEBUG: Looking for button with ID or text:", triggerId, messageText);
             const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
-            const clickedButton = nodeButtons.find(b => 
-               String(b.buttonId || b.id) === String(triggerId).trim() || b.text === messageText
-            );
+            
+            // Priority matching: buttonId -> id -> text
+            let clickedButton = null;
+            if (triggerId) {
+               const cleanTrigger = String(triggerId).trim();
+               clickedButton = nodeButtons.find(b => String(b.buttonId) === cleanTrigger) || 
+                               nodeButtons.find(b => String(b.id) === cleanTrigger);
+            }
+            if (!clickedButton) {
+               clickedButton = nodeButtons.find(b => b.text === messageText);
+            }
             
             if (clickedButton) {
                console.log(`DEBUG: Button matched: ${clickedButton.text}`);
-               console.log("Clicked Button ID:", clickedButton.buttonId || clickedButton.id);
                
-               sessionAction.variables[varName] = clickedButton.text;
+               // Safe merge variables
+               sessionAction.variables = { ...sessionAction.variables, [varName]: clickedButton.text };
                
-               // 5. Match using clickedButtonId === node.data.triggerId
-               const nextNodeByTrigger = sessionFlow.nodes.find(n => {
-                   const nTriggerId = n.triggerId || n.data?.triggerId;
-                   return nTriggerId && String(nTriggerId) === String(clickedButton.buttonId || clickedButton.id);
-               });
-
-               if (nextNodeByTrigger) {
-                  matchedNextNodeId = nextNodeByTrigger.id || nextNodeByTrigger._id;
-                  console.log("Next Node Trigger ID:", nextNodeByTrigger.triggerId || nextNodeByTrigger.data?.triggerId);
+               if (clickedButton.action === 'submit_request') {
+                  sessionAction.type = 'complete';
                   isValidSessionAction = true;
-               } else if (clickedButton.nextMessageId) {
+               } else if (clickedButton.action === 'cancel_request') {
+                  sessionAction.type = 'cancel';
+                  isValidSessionAction = true;
+               }
+
+               if (clickedButton.nextMessageId) {
                   matchedNextNodeId = clickedButton.nextMessageId;
                   isValidSessionAction = true;
                } else if (currentNode.nextMessageId) {
@@ -116,20 +147,23 @@ class ChatbotEngineService {
                } else {
                   isValidSessionAction = true; // Fallback to index + 1
                }
+            } else if (isWaitingForInput === 'button') {
+               // Prevent invalid input when waiting for button
+               return interpolate({
+                  type: 'Text',
+                  text: 'Please select a valid option from the buttons above.',
+                  sessionAction: { type: 'update', variables: chatSession.variables }
+               }, chatSession.variables);
             }
          }
          // B) Text Input Handling
-         else if (isWaitingForInput && messageText.trim() !== '') {
+         else if ((isWaitingForInput === 'text' || isWaitingForInput === true) && messageText.trim() !== '') {
             console.log(`[Session Intercept] User text input captured for node: ${chatSession.currentNodeId}`);
             
             const saveVar = currentNode.variable || currentNode.data?.variable || chatSession.targetVariable || 'answer';
             
-            console.log("Saving Variable:", saveVar);
-            console.log("User Input:", messageText);
-            
-            sessionAction.variables[saveVar] = messageText;
-            
-            console.log("Updated Session Variables:", sessionAction.variables);
+            // Safe merge variables
+            sessionAction.variables = { ...sessionAction.variables, [saveVar]: messageText };
             
             if (currentNode.nextMessageId) {
                matchedNextNodeId = currentNode.nextMessageId;
@@ -153,10 +187,22 @@ class ChatbotEngineService {
                 targetNode = sessionFlow.nodes.find(n => String(n.id) === String(matchedNextNodeId));
             }
 
+            // End node support
+            if (targetNode && targetNode.type === 'end') {
+                console.log("[DEBUG] Reached an explicit 'end' node.");
+                if (sessionAction.type !== 'complete' && sessionAction.type !== 'cancel') {
+                   sessionAction.type = 'cancel'; // Default to cancel to just end session cleanly
+                }
+                const nodeText = targetNode.data?.text || targetNode.text || targetNode.data?.message || '';
+                return interpolate({ type: 'Complete', text: nodeText, sessionAction }, sessionAction.variables);
+            }
+
             // G) Flow Completion Check
             if (!targetNode && matchedNextNodeId == null && currentIndex === sessionFlow.nodes.length - 1) {
-                console.log("[DEBUG] Reached the end of the flow. Completing session.");
-                sessionAction.type = 'complete';
+                console.log("[DEBUG] Reached the end of the flow sequentially.");
+                if (sessionAction.type !== 'complete' && sessionAction.type !== 'cancel') {
+                   sessionAction.type = 'cancel'; // Default to cancel for sequential completion to prevent auto-request creation
+                }
                 return { type: 'NoReply', sessionAction };
             }
             
@@ -303,14 +349,13 @@ class ChatbotEngineService {
             };
 
             const hasButtons = nodeButtons.length > 0;
-            // Initiate session if the node needs user input or button response
             const isAsk = targetNode.type === 'Ask Question' || targetNode.is_ask_question || targetNode.data?.is_ask_question || targetNode.variable || targetNode.data?.variable || (targetNode.type === 'Text' && !hasButtons);
             if (isAsk || hasButtons) {
               sessionAction = {
                 type: 'create',
                 flowId: flow._id,
                 currentNodeId: currentNodeId,
-                isWaitingForInput: Boolean(isAsk),
+                waitingFor: hasButtons ? 'button' : 'text',
                 targetVariable: targetNode.variable || targetNode.data?.variable || 'answer',
                 variables: chatSession ? chatSession.variables : {}
               };
