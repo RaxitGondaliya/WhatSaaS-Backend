@@ -156,14 +156,20 @@ class ChatbotEngineService {
                   isValidSessionAction = true;
                }
 
-               if (clickedButton.nextMessageId) {
+               console.log(`[DEBUG] Clicked Button: ${clickedButton.text}`);
+               console.log(`[DEBUG] Button nextMessageId: ${clickedButton.nextMessageId}`);
+               
+               if (clickedButton.nextMessageId && String(clickedButton.nextMessageId).trim() !== '') {
                   matchedNextNodeId = clickedButton.nextMessageId;
                   isValidSessionAction = true;
-               } else if (currentNode.nextMessageId) {
+                  console.log(`[DEBUG] Dynamic Route Target: ${matchedNextNodeId}`);
+               } else if (currentNode.nextMessageId && String(currentNode.nextMessageId).trim() !== '') {
                   matchedNextNodeId = currentNode.nextMessageId;
                   isValidSessionAction = true;
+                  console.log(`[DEBUG] Dynamic Route Target (from Node): ${matchedNextNodeId}`);
                } else {
                   isValidSessionAction = true; // Fallback to index + 1
+                  console.log(`[DEBUG] Sequential Fallback Used: true`);
                }
             } else if (isWaitingForInput === 'button') {
                // Prevent invalid input when waiting for button
