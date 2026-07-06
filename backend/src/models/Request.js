@@ -128,10 +128,10 @@ const requestSchema = new mongoose.Schema(
     paymentStatus: {
       type: String,
       enum: {
-        values: ['paid', 'pending'],
-        message: 'Payment status must be paid or pending',
+        values: ['completed', 'pending'],
+        message: 'Payment status must be completed or pending',
       },
-      default: 'paid',
+      default: 'pending',
     },
     completionNotes: {
       type: String,

@@ -7,7 +7,7 @@ const VALID_CATEGORIES = ['service', 'booking', 'order', 'repair', 'other'];
 const VALID_SOURCES = ['manual', 'chatbot', 'whatsapp'];
 const VALID_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
 const VALID_PRIORITIES = ['low', 'medium', 'high'];
-const VALID_PAYMENT_STATUSES = ['paid', 'pending'];
+const VALID_PAYMENT_STATUSES = ['completed', 'pending'];
 
 const normalizeText = (value) => {
   if (typeof value !== 'string') {
@@ -177,6 +177,7 @@ const formatRequest = (request) => ({
   category: request.category,
   source: request.source,
   status: request.status,
+  requestStatus: request.status,
   assignedTo: request.assignedTo,
   priority: request.priority,
   estimatedAmount: request.estimatedAmount,
@@ -729,13 +730,15 @@ exports.completeRequest = async (req, res, next) => {
       });
     }
 
-    const paymentStatus = normalizeText(req.body.paymentStatus) || 'paid';
+    let reqPaymentStatus = normalizeText(req.body.paymentStatus) || 'completed';
+    if (reqPaymentStatus === 'paid') reqPaymentStatus = 'completed';
+    const paymentStatus = reqPaymentStatus;
     const expenseItemsResult = normalizeExpenseItems(req.body.expenseItems);
 
     if (!VALID_PAYMENT_STATUSES.includes(paymentStatus)) {
       return res.status(400).json({
         success: false,
-        message: 'Payment status must be paid or pending',
+        message: 'Payment status must be completed or pending',
       });
     }
 
@@ -798,7 +801,7 @@ exports.markRequestPaid = async (req, res, next) => {
       });
     }
 
-    request.paymentStatus = 'paid';
+    request.paymentStatus = 'completed';
     const paidAmount = toAmount(request.paidAmount ?? request.finalAmount, 0);
     const totalExpense = toAmount(request.totalExpense ?? request.expenseAmount, 0);
     request.paidAmount = paidAmount;
@@ -806,13 +809,13 @@ exports.markRequestPaid = async (req, res, next) => {
     request.totalExpense = totalExpense;
     request.expenseAmount = totalExpense;
     request.profitAmount = paidAmount - totalExpense;
-    addTimelineEvent(request, 'Payment Marked Paid', '', scope.currentUser._id);
+    addTimelineEvent(request, 'Payment Marked Completed', '', scope.currentUser._id);
 
     await request.save();
 
     res.status(200).json({
       success: true,
-      message: 'Payment marked as paid successfully',
+      message: 'Payment marked as completed successfully',
       request: formatRequest(request),
     });
   } catch (error) {

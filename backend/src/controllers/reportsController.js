@@ -5,7 +5,7 @@ const ChatbotFlow = require('../models/ChatbotFlow');
 const User = require('../models/User');
 
 const REQUEST_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
-const PAYMENT_STATUSES = ['paid', 'pending'];
+const PAYMENT_STATUSES = ['completed', 'pending'];
 const CONTACT_STATUSES = ['active', 'inactive', 'blocked'];
 const BROADCAST_STATUSES = ['draft', 'scheduled', 'sent', 'cancelled'];
 const FLOW_STATUSES = ['draft', 'active', 'inactive'];
@@ -280,7 +280,7 @@ const formatChatbotFlowReport = (flow) => ({
 
 const formatPaymentReport = (request) => {
   const amount = getRevenue(request);
-  const paidAmount = request.paymentStatus === 'paid' ? amount : 0;
+  const paidAmount = request.paymentStatus === 'completed' ? amount : 0;
   const pendingAmount = request.paymentStatus === 'pending' ? amount : 0;
 
   return {

@@ -394,7 +394,7 @@ exports.getOverview = async (req, res, next) => {
         totals.pendingRevenue += revenue;
       }
 
-      if (request.paymentStatus === 'paid') {
+      if (request.paymentStatus === 'completed') {
         totals.paidRevenue += revenue;
       }
 
