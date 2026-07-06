@@ -132,44 +132,75 @@ class WhatsappService {
                  const Request = require('../models/Request');
                  const Contact = require('../models/Contact');
                  
-                 let contact = await Contact.findOne({ phone: from, businessId: business._id });
-                 if (!contact) {
-                     contact = await Contact.create({
-                         businessId: business._id,
-                         ownerId: business.ownerId || business._id,
-                         name: action.variables.customer_name || 'WhatsApp Customer',
-                         phone: from
-                     });
-                 }
-
                  const extractCity = (address) => {
                      if (!address) return "";
                      const parts = address.trim().split(" ");
                      return parts[parts.length - 1];
                  };
+                 
+                 const customerAddress = action.variables.customer_address || action.variables.address || '';
+                 const customerCity = extractCity(customerAddress);
+                 const customerName = action.variables.customer_name || action.variables.name || profileName || 'WhatsApp Customer';
 
-                 const requestData = {
-                     businessId: business._id,
-                     ownerId: business.ownerId || business._id,
+                 // 1. Upsert Contact to avoid duplicates and update address/city
+                 const contact = await Contact.findOneAndUpdate(
+                     { phone: from, businessId: business._id },
+                     {
+                         $set: {
+                             name: customerName,
+                             ownerId: business.ownerId || business._id,
+                             ...(customerAddress ? { address: customerAddress } : {}),
+                             ...(customerCity ? { city: customerCity } : {})
+                         }
+                     },
+                     { new: true, upsert: true, setDefaultsOnInsert: true }
+                 );
+
+                 // 2. Race Condition Safety: Check if request already created in last 60 seconds
+                 const recentRequest = await Request.findOne({
                      contactId: contact._id,
-                     title: `${action.variables.selected_service || 'Service'} Service Request`,
-                     customerName: action.variables.customer_name || profileName || from,
-                     phone: from,
-                     address: action.variables.customer_address || "",
-                     city: extractCity(action.variables.customer_address) || "",
-                     description: `Service: ${action.variables.selected_service || ""}\nProblem: ${action.variables.problem_desc || action.variables.problem_DESC || ""}\nAddress: ${action.variables.customer_address || ""}\nCustomer: ${action.variables.customer_name || profileName || from}\nPhone: ${from}`,
-                     status: "pending",
+                     businessId: business._id,
                      source: "whatsapp",
-                     category: "service"
-                 };
+                     createdAt: { $gte: new Date(Date.now() - 60 * 1000) }
+                 });
 
-                 console.log("Final Session Variables:", action.variables);
-                 console.log("Request Data:", requestData);
-                 console.log("WhatsApp Profile Name:", profileName);
+                 if (recentRequest) {
+                     console.log(`[Session] Preventing duplicate request creation for ${from} within 60s.`);
+                 } else {
+                     // 3. Dynamically format variables into description
+                     let dynamicDescription = [];
+                     for (const [key, value] of Object.entries(action.variables || {})) {
+                         if (key.startsWith('__')) continue;
+                         // Format key (e.g., 'customer_name' -> 'Customer Name')
+                         const readableKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                         dynamicDescription.push(`${readableKey}: ${value}`);
+                     }
+                     
+                     if (dynamicDescription.length === 0) {
+                        dynamicDescription.push(`Customer: ${customerName}`);
+                        dynamicDescription.push(`Phone: ${from}`);
+                     }
 
-                 await Request.create(requestData);
+                     const requestData = {
+                         businessId: business._id,
+                         ownerId: business.ownerId || business._id,
+                         contactId: contact._id,
+                         title: `${action.variables.selected_service || action.variables.service || 'WhatsApp'} Service Request`,
+                         description: dynamicDescription.join('\n'),
+                         status: "pending",
+                         source: "whatsapp",
+                         category: "service"
+                     };
+
+                     console.log("Final Session Variables:", action.variables);
+                     console.log("Request Data:", requestData);
+                     console.log("WhatsApp Profile Name:", profileName);
+
+                     await Request.create(requestData);
+                     console.log(`[Session] Flow completed and request created for ${from}`);
+                 }
+
                  await ChatSession.deleteOne({ _id: chatSession._id });
-                 console.log(`[Session] Flow completed and request created for ${from}`);
               }
             }
 
