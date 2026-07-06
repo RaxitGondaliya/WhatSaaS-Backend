@@ -126,51 +126,58 @@ class ChatbotEngineService {
             console.log("DEBUG: Looking for button with ID or text:", triggerId, messageText);
             const nodeButtons = currentNode.data?.buttons || currentNode.buttons || [];
             
-            // Priority matching: buttonId -> id -> text
-            let clickedButton = null;
-            if (triggerId) {
-               const cleanTrigger = String(triggerId).trim();
-               clickedButton = nodeButtons.find(b => String(b.buttonId) === cleanTrigger) || 
-                               nodeButtons.find(b => String(b.id) === cleanTrigger);
-            }
-            if (!clickedButton) {
-               clickedButton = nodeButtons.find(b => b.text === messageText);
-            }
-            
-            if (clickedButton) {
-               console.log(`DEBUG: Button matched: ${clickedButton.text}`);
-               
-               // Safe merge variables
-               sessionAction.variables = { 
-                  ...sessionAction.variables, 
-                  [varName]: clickedButton.text,
-                  __previous_button_selection: clickedButton.text 
-               };
-               console.log(`[DEBUG] Previous Button Selection Saved: ${clickedButton.text}`);
-               
-               if (clickedButton.action === 'submit_request') {
-                  sessionAction.type = 'complete';
-                  isValidSessionAction = true;
-               } else if (clickedButton.action === 'cancel_request') {
-                  sessionAction.type = 'cancel';
-                  isValidSessionAction = true;
-               }
+             const { resolveButtonClickRoute } = require('./buttonRouting');
+             
+             let clickedButton = null;
+             
+             if (triggerId) {
+                const routeResult = resolveButtonClickRoute(triggerId, currentNode, sessionFlow, business._id);
+                if (routeResult) {
+                   clickedButton = routeResult.matchedButton;
+                   matchedNextNodeId = routeResult.targetNodeId;
+                   isValidSessionAction = !!matchedNextNodeId;
+                   console.log(`[DEBUG] Button Route Resolved via: ${routeResult.routeType} to target ${matchedNextNodeId}`);
+                }
+             }
+             
+             // If triggerId didn't match anything, or we only had text and it was waiting for a button
+             if (!clickedButton && !matchedNextNodeId) {
+                // Fallback to text matching for buttons (legacy behavior for when user types the button text)
+                clickedButton = nodeButtons.find(b => b.text === messageText);
+                if (clickedButton) {
+                   if (clickedButton.nextMessageId && String(clickedButton.nextMessageId).trim() !== '') {
+                      matchedNextNodeId = clickedButton.nextMessageId;
+                   } else if (currentNode.nextMessageId && String(currentNode.nextMessageId).trim() !== '') {
+                      matchedNextNodeId = currentNode.nextMessageId;
+                   } else {
+                      // Legacy sequential fallback ONLY for text-typed buttons (to not break old logic if any)
+                      isValidSessionAction = true;
+                   }
+                   if (matchedNextNodeId) isValidSessionAction = true;
+                }
+             }
+             
+             if (clickedButton) {
+                console.log(`DEBUG: Button matched: ${clickedButton.text}`);
+                
+                // Safe merge variables
+                sessionAction.variables = { 
+                   ...sessionAction.variables, 
+                   [varName]: clickedButton.text,
+                   __previous_button_selection: clickedButton.text 
+                };
+                console.log(`[DEBUG] Previous Button Selection Saved: ${clickedButton.text}`);
+                
+                if (clickedButton.action === 'submit_request') {
+                   sessionAction.type = 'complete';
+                   isValidSessionAction = true;
+                } else if (clickedButton.action === 'cancel_request') {
+                   sessionAction.type = 'cancel';
+                   isValidSessionAction = true;
+                }
 
-               console.log(`[DEBUG] Clicked Button: ${clickedButton.text}`);
-               console.log(`[DEBUG] Button nextMessageId: ${clickedButton.nextMessageId}`);
-               
-               if (clickedButton.nextMessageId && String(clickedButton.nextMessageId).trim() !== '') {
-                  matchedNextNodeId = clickedButton.nextMessageId;
-                  isValidSessionAction = true;
-                  console.log(`[DEBUG] Dynamic Route Target: ${matchedNextNodeId}`);
-               } else if (currentNode.nextMessageId && String(currentNode.nextMessageId).trim() !== '') {
-                  matchedNextNodeId = currentNode.nextMessageId;
-                  isValidSessionAction = true;
-                  console.log(`[DEBUG] Dynamic Route Target (from Node): ${matchedNextNodeId}`);
-               } else {
-                  isValidSessionAction = true; // Fallback to index + 1
-                  console.log(`[DEBUG] Sequential Fallback Used: true`);
-               }
+                console.log(`[DEBUG] Clicked Button: ${clickedButton.text}`);
+                console.log(`[DEBUG] Button nextMessageId: ${matchedNextNodeId || 'None'}`);
             } else if (isWaitingForInput === 'button') {
                // Prevent invalid input when waiting for button
                return interpolate({
