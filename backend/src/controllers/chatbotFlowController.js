@@ -365,6 +365,29 @@ exports.updateFlow = async (req, res, next) => {
     }
 
     if (updates.nodes !== undefined) {
+      // Validate that button_click nodes reference a valid buttonId in the flow
+      for (const node of updates.nodes) {
+        if (node.triggerType === 'button_click' || (node.data && node.data.triggerType === 'button_click')) {
+          const triggerId = node.triggerId || (node.data && node.data.triggerId);
+          let matchFound = false;
+          for (const searchNode of updates.nodes) {
+            const buttons = searchNode.buttons || (searchNode.data && searchNode.data.buttons);
+            if (buttons && Array.isArray(buttons)) {
+              if (buttons.some(b => b.buttonId === triggerId || b.id === triggerId)) {
+                matchFound = true;
+                break;
+              }
+            }
+          }
+          if (!matchFound) {
+            return res.status(400).json({
+              success: false,
+              message: `Validation Error: Node '${node.id}' uses a button_click trigger but its triggerId '${triggerId}' does not match any buttonId in this flow.`,
+            });
+          }
+        }
+      }
+
       updates.nodes = normalizeArray(updates.nodes).map((n, i) => {
         if (!n.id) n.id = `node_${i}`;
         return n;
