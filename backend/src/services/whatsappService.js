@@ -157,43 +157,29 @@ class WhatsappService {
               } else if (action.type === 'delete' || action.type === 'cancel') {
                  if (chatSession) await ChatSession.deleteOne({ _id: chatSession._id });
                  console.log(`[Session] Deleted session for ${from} due to ${action.type}`);
-              } else if (action.type === 'complete' && chatSession) {
-                 const mongoose = require('mongoose');
+               } else if (action.type === 'complete' && chatSession) {
                  const Request = require('../models/Request');
                  const Contact = require('../models/Contact');
                  
-                 const ChatbotFlow = require('../models/ChatbotFlow');
-                 const flow = await ChatbotFlow.findById(chatSession.currentFlowId);
-                 
-                 let nameVariableKey = null;
-                 let serviceVariableKey = null;
-                 let buttonTexts = new Set(['YES', 'NO', 'CANCEL', 'CONFIRM']);
+                 const vars = action.variables || {};
 
-                 if (flow && flow.nodes && flow.nodes.length > 0) {
-                     // 1. FIRST node variable -> Contact Name
-                     const firstNode = flow.nodes[0];
-                     nameVariableKey = firstNode.variable || (firstNode.data && firstNode.data.variable) || null;
+                 // 1. Contact Name: Always use WhatsApp profile name (flows don't collect name via text input)
+                 const customerName = profileName || 'WhatsApp Customer';
 
-                     for (const node of flow.nodes) {
-                         const buttons = node.buttons || (node.data && node.data.buttons) || [];
-                         for (const b of buttons) {
-                             if (b.text) buttonTexts.add(b.text.toUpperCase().trim());
-                         }
-                     }
+                 // 2. Address/City: Look for any variable containing these keywords
+                 let customerAddress = '';
+                 let customerCity = '';
+                 const addressKeys = [];
+                 const cityKeys = [];
+
+                 for (const key of Object.keys(vars)) {
+                   if (key.startsWith('__')) continue;
+                   const lk = key.toLowerCase();
+                   if (lk.includes('address') || lk.includes('adress')) { customerAddress = vars[key]; addressKeys.push(key); }
+                   if (lk.includes('city') || lk.includes('sehpar')) { customerCity = vars[key]; cityKeys.push(key); }
                  }
 
-                 let rawCustomerName = nameVariableKey ? action.variables[nameVariableKey] : (action.variables.customer_name || action.variables.name || profileName || 'WhatsApp Customer');
-                 
-                 // Sanity Check: Never use a button payload as a real customer name
-                 if (rawCustomerName && buttonTexts.has(rawCustomerName.toString().toUpperCase().trim())) {
-                     rawCustomerName = profileName || 'WhatsApp Customer';
-                 }
-                 const customerName = rawCustomerName;
-
-                 const customerAddress = action.variables.customer_address || action.variables.address || '';
-                 const customerCity = action.variables.customer_city || action.variables.city || '';
-
-                 // 1. Upsert Contact to avoid duplicates and update address/city
+                 // 3. Upsert Contact
                  const contact = await Contact.findOneAndUpdate(
                      { phone: from, businessId: business._id },
                      {
@@ -207,7 +193,7 @@ class WhatsappService {
                      { new: true, upsert: true, setDefaultsOnInsert: true }
                  );
 
-                 // 2. Race Condition Safety: Check if request already created in last 60 seconds
+                 // 4. Race Condition Safety
                  const recentRequest = await Request.findOne({
                      contactId: contact._id,
                      businessId: business._id,
@@ -218,31 +204,29 @@ class WhatsappService {
                  if (recentRequest) {
                      console.log(`[Session] Preventing duplicate request creation for ${from} within 60s.`);
                  } else {
-                     // 3. Determine service type using the dynamic extractor helper
-                     const serviceType = extractRequestTitle(action.variables);
-                     
-                     if (!serviceType) {
-                        console.warn(`[Request Title Warning] Could not determine service type from variables for flow ${business._id}. Falling back to generic title.`);
-                     }
-                     const requestTitle = serviceType ? String(serviceType) : `WhatsApp Booking`;
+                     // 5. Title: First meaningful button selection (not YES/NO/CONFIRM)
+                     const requestTitle = extractRequestTitle(vars) || 'WhatsApp Booking';
 
-                     // 4. Dynamically format variables into description
+                     // 6. Description: All remaining variables, excluding address/city/title/confirmations
+                     const titleValue = requestTitle;
+                     const genericConfirmations = new Set(['YES', 'NO', 'CONFIRM', 'SUBMIT', 'DONE', 'OK', 'CANCEL']);
+                     const excludedKeySet = new Set([...addressKeys, ...cityKeys]);
+                     
                      let dynamicDescription = [];
-                     const excludedKeys = ['customer_address', 'address', 'customer_city', 'city', 'phone'];
-                     
-                     if (nameVariableKey) excludedKeys.push(nameVariableKey.toLowerCase());
-                     else excludedKeys.push('customer_name', 'name');
-
-                     for (const [key, value] of Object.entries(action.variables || {})) {
+                     for (const [key, value] of Object.entries(vars)) {
                          if (key.startsWith('__')) continue;
-                         if (excludedKeys.includes(key.toLowerCase())) continue;
-                         
+                         if (excludedKeySet.has(key)) continue;
+                         if (key.toLowerCase().includes('phone')) continue;
+                         if (key.toLowerCase().includes('confirmation')) continue;
+                         if (typeof value === 'string' && genericConfirmations.has(value.toUpperCase().trim())) continue;
+                         if (value === titleValue) continue;
+
                          const readableKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                          dynamicDescription.push(`${readableKey}: ${value}`);
                      }
                      
                      if (dynamicDescription.length === 0) {
-                        dynamicDescription.push(`Booking request via WhatsApp`);
+                        dynamicDescription.push('Booking request via WhatsApp');
                      }
 
                      const requestData = {
@@ -258,10 +242,11 @@ class WhatsappService {
                      };
 
                      console.log("=========================================");
-                     console.log("[Request Creation Logs] Flow ID:", chatSession.currentFlowId);
-                     console.log("Name Variable Key:", nameVariableKey, "-> Value Used:", customerName);
-                     console.log(`Title dynamically extracted:`, requestTitle);
-                     console.log("Leftover Variables for Description:", dynamicDescription);
+                     console.log("[Request Creation] Flow:", chatSession.currentFlowId);
+                     console.log("  Contact Name:", customerName, "(from WhatsApp profile)");
+                     console.log("  Title:", requestTitle);
+                     console.log("  Description:", dynamicDescription);
+                     console.log("  All Variables:", vars);
                      console.log("=========================================");
 
                      await Request.create(requestData);
