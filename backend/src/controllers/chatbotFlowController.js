@@ -365,6 +365,8 @@ exports.updateFlow = async (req, res, next) => {
     }
 
     if (updates.nodes !== undefined) {
+      let hasSubmitRequestAction = false;
+      
       // Validate that button_click nodes reference a valid buttonId in the flow
       for (const node of updates.nodes) {
         if (node.triggerType === 'button_click' || (node.data && node.data.triggerType === 'button_click')) {
@@ -375,7 +377,9 @@ exports.updateFlow = async (req, res, next) => {
             if (buttons && Array.isArray(buttons)) {
               if (buttons.some(b => b.buttonId === triggerId || b.id === triggerId)) {
                 matchFound = true;
-                break;
+              }
+              if (buttons.some(b => b.action === 'submit_request')) {
+                hasSubmitRequestAction = true;
               }
             }
           }
@@ -386,6 +390,18 @@ exports.updateFlow = async (req, res, next) => {
             });
           }
         }
+        
+        // Also check nodes that might not be button_click triggers but have buttons
+        const nodeButtons = node.buttons || (node.data && node.data.buttons);
+        if (nodeButtons && Array.isArray(nodeButtons)) {
+          if (nodeButtons.some(b => b.action === 'submit_request')) {
+            hasSubmitRequestAction = true;
+          }
+        }
+      }
+
+      if (!hasSubmitRequestAction) {
+        console.warn(`[Flow Publishing Warning] Flow '${updates.flowName || flow.flowName}' was saved without any 'submit_request' buttons. It will not generate booking requests on completion.`);
       }
 
       updates.nodes = normalizeArray(updates.nodes).map((n, i) => {
