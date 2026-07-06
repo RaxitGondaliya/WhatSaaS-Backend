@@ -160,12 +160,17 @@ class ChatbotEngineService {
              if (clickedButton) {
                 console.log(`DEBUG: Button matched: ${clickedButton.text}`);
                 
-                // Safe merge variables
-                sessionAction.variables = { 
-                   ...sessionAction.variables, 
-                   [varName]: clickedButton.text,
-                   __previous_button_selection: clickedButton.text 
-                };
+                 // Safe merge variables
+                 const prevSelections = Array.isArray(sessionAction.variables.__button_selections) 
+                    ? sessionAction.variables.__button_selections 
+                    : [];
+                    
+                 sessionAction.variables = { 
+                    ...sessionAction.variables, 
+                    [varName]: clickedButton.text,
+                    __previous_button_selection: clickedButton.text,
+                    __button_selections: [...prevSelections, clickedButton.text]
+                 };
                 console.log(`[DEBUG] Previous Button Selection Saved: ${clickedButton.text}`);
                 
                 if (clickedButton.action === 'submit_request') {

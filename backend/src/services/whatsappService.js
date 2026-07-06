@@ -5,6 +5,36 @@ const businessService = require('./businessService');
 const ChatSession = require('../models/ChatSession');
 
 /**
+ * Helper function to extract the first meaningful service/product selection from chatbot flow data.
+ * It strictly ignores generic confirmation texts (YES, CONFIRM, DONE, etc).
+ */
+function extractRequestTitle(chatbotFlowData) {
+    const genericConfirmations = new Set(['YES', 'NO', 'CONFIRM', 'SUBMIT', 'DONE', 'OK', 'CANCEL']);
+    
+    // 1. Prioritize chronologically tracked button selections from the engine
+    if (chatbotFlowData.__button_selections && Array.isArray(chatbotFlowData.__button_selections)) {
+        for (const selection of chatbotFlowData.__button_selections) {
+            if (selection && !genericConfirmations.has(selection.toString().toUpperCase().trim())) {
+                return selection.trim(); // First meaningful selection
+            }
+        }
+    }
+    
+    // 2. Fallback: Search all session variables if __button_selections isn't available
+    for (const [key, value] of Object.entries(chatbotFlowData || {})) {
+        if (key.startsWith('__')) continue;
+        if (value && !genericConfirmations.has(value.toString().toUpperCase().trim())) {
+            // Assume it's a short selection string
+            if (typeof value === 'string' && value.length < 50 && !value.includes('\n')) {
+                return value.trim();
+            }
+        }
+    }
+    
+    return null;
+}
+
+/**
  * Service to handle incoming WhatsApp webhook payloads and sending messages.
  */
 class WhatsappService {
@@ -144,21 +174,10 @@ class WhatsappService {
                      const firstNode = flow.nodes[0];
                      nameVariableKey = firstNode.variable || (firstNode.data && firstNode.data.variable) || null;
 
-                     // 2. FIRST BUTTON node variable -> Request Title
-                     let firstButtonNodeFound = false;
-                     let titleNodeId = null;
-                     
                      for (const node of flow.nodes) {
                          const buttons = node.buttons || (node.data && node.data.buttons) || [];
                          for (const b of buttons) {
                              if (b.text) buttonTexts.add(b.text.toUpperCase().trim());
-                         }
-                         
-                         // We strictly want the VERY FIRST node in the flow that has buttons.
-                         if (!firstButtonNodeFound && buttons.length > 0) {
-                             firstButtonNodeFound = true;
-                             serviceVariableKey = node.variable || (node.data && node.data.variable) || null;
-                             titleNodeId = node.id;
                          }
                      }
                  }
@@ -199,8 +218,8 @@ class WhatsappService {
                  if (recentRequest) {
                      console.log(`[Session] Preventing duplicate request creation for ${from} within 60s.`);
                  } else {
-                     // 3. Determine service type for title exactly from the first button node
-                     const serviceType = serviceVariableKey ? action.variables[serviceVariableKey] : (action.variables.selected_service || action.variables.service || null);
+                     // 3. Determine service type using the dynamic extractor helper
+                     const serviceType = extractRequestTitle(action.variables);
                      
                      if (!serviceType) {
                         console.warn(`[Request Title Warning] Could not determine service type from variables for flow ${business._id}. Falling back to generic title.`);
@@ -213,9 +232,6 @@ class WhatsappService {
                      
                      if (nameVariableKey) excludedKeys.push(nameVariableKey.toLowerCase());
                      else excludedKeys.push('customer_name', 'name');
-                     
-                     if (serviceVariableKey) excludedKeys.push(serviceVariableKey.toLowerCase());
-                     else excludedKeys.push('selected_service', 'service');
 
                      for (const [key, value] of Object.entries(action.variables || {})) {
                          if (key.startsWith('__')) continue;
@@ -244,7 +260,7 @@ class WhatsappService {
                      console.log("=========================================");
                      console.log("[Request Creation Logs] Flow ID:", chatSession.currentFlowId);
                      console.log("Name Variable Key:", nameVariableKey, "-> Value Used:", customerName);
-                     console.log(`Title Variable Key (from Node ${titleNodeId}):`, serviceVariableKey, "-> Value Used:", requestTitle);
+                     console.log(`Title dynamically extracted:`, requestTitle);
                      console.log("Leftover Variables for Description:", dynamicDescription);
                      console.log("=========================================");
 
