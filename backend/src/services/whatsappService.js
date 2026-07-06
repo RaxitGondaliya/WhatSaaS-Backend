@@ -145,13 +145,20 @@ class WhatsappService {
                      nameVariableKey = firstNode.variable || (firstNode.data && firstNode.data.variable) || null;
 
                      // 2. FIRST BUTTON node variable -> Request Title
+                     let firstButtonNodeFound = false;
+                     let titleNodeId = null;
+                     
                      for (const node of flow.nodes) {
                          const buttons = node.buttons || (node.data && node.data.buttons) || [];
                          for (const b of buttons) {
                              if (b.text) buttonTexts.add(b.text.toUpperCase().trim());
                          }
-                         if (!serviceVariableKey && buttons.length > 0) {
+                         
+                         // We strictly want the VERY FIRST node in the flow that has buttons.
+                         if (!firstButtonNodeFound && buttons.length > 0) {
+                             firstButtonNodeFound = true;
                              serviceVariableKey = node.variable || (node.data && node.data.variable) || null;
+                             titleNodeId = node.id;
                          }
                      }
                  }
@@ -237,7 +244,7 @@ class WhatsappService {
                      console.log("=========================================");
                      console.log("[Request Creation Logs] Flow ID:", chatSession.currentFlowId);
                      console.log("Name Variable Key:", nameVariableKey, "-> Value Used:", customerName);
-                     console.log("Title Variable Key:", serviceVariableKey, "-> Value Used:", requestTitle);
+                     console.log(`Title Variable Key (from Node ${titleNodeId}):`, serviceVariableKey, "-> Value Used:", requestTitle);
                      console.log("Leftover Variables for Description:", dynamicDescription);
                      console.log("=========================================");
 
