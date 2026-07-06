@@ -366,9 +366,23 @@ exports.updateFlow = async (req, res, next) => {
 
     if (updates.nodes !== undefined) {
       let hasSubmitRequestAction = false;
+      let variablesSeen = {};
       
       // Validate that button_click nodes reference a valid buttonId in the flow
+      // Also validate that variables are not reused across multiple nodes
       for (const node of updates.nodes) {
+        const variable = node.variable || (node.data && node.data.variable);
+        if (variable && variable.trim() !== '') {
+          const varName = variable.trim();
+          if (variablesSeen[varName]) {
+            return res.status(400).json({
+              success: false,
+              message: `Validation Error: The variable name '${varName}' is reused across multiple nodes (e.g., node '${variablesSeen[varName]}' and node '${node.id}'). Each variable name must be unique within a flow to prevent data overwriting.`,
+            });
+          }
+          variablesSeen[varName] = node.id;
+        }
+
         if (node.triggerType === 'button_click' || (node.data && node.data.triggerType === 'button_click')) {
           const triggerId = node.triggerId || (node.data && node.data.triggerId);
           let matchFound = false;

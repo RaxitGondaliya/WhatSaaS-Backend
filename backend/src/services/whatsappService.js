@@ -132,14 +132,8 @@ class WhatsappService {
                  const Request = require('../models/Request');
                  const Contact = require('../models/Contact');
                  
-                 const extractCity = (address) => {
-                     if (!address) return "";
-                     const parts = address.trim().split(" ");
-                     return parts[parts.length - 1];
-                 };
-                 
                  const customerAddress = action.variables.customer_address || action.variables.address || '';
-                 const customerCity = extractCity(customerAddress);
+                 const customerCity = action.variables.customer_city || action.variables.city || '';
                  const customerName = action.variables.customer_name || action.variables.name || profileName || 'WhatsApp Customer';
 
                  // 1. Upsert Contact to avoid duplicates and update address/city
@@ -167,27 +161,41 @@ class WhatsappService {
                  if (recentRequest) {
                      console.log(`[Session] Preventing duplicate request creation for ${from} within 60s.`);
                  } else {
-                     // 3. Dynamically format variables into description
+                     // Determine service type for title (Bug 2)
+                     const serviceKeys = Object.keys(action.variables || {}).filter(k => k.toLowerCase().includes('service') || k.toLowerCase().includes('type') || k.toLowerCase().includes('category'));
+                     const serviceType = serviceKeys.length > 0 ? action.variables[serviceKeys[0]] : null;
+                     
+                     if (!serviceType) {
+                        console.warn(`[Request Title Warning] Could not determine service type from variables for flow ${business._id}. Falling back to generic title.`);
+                     }
+                     const requestTitle = serviceType ? `${serviceType} Service Request` : `WhatsApp Service Request`;
+
+                     // 3. Dynamically format variables into description (Bug 3)
                      let dynamicDescription = [];
+                     const excludedKeys = ['customer_name', 'name', 'customer_address', 'address', 'customer_city', 'city', 'phone'];
+                     if (serviceKeys.length > 0) excludedKeys.push(serviceKeys[0]);
+
                      for (const [key, value] of Object.entries(action.variables || {})) {
                          if (key.startsWith('__')) continue;
-                         // Format key (e.g., 'customer_name' -> 'Customer Name')
+                         if (excludedKeys.includes(key.toLowerCase())) continue;
+                         
+                         // Format key (e.g., 'problem_desc' -> 'Problem Desc')
                          const readableKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                          dynamicDescription.push(`${readableKey}: ${value}`);
                      }
                      
                      if (dynamicDescription.length === 0) {
-                        dynamicDescription.push(`Customer: ${customerName}`);
-                        dynamicDescription.push(`Phone: ${from}`);
+                        dynamicDescription.push(`Request submitted via WhatsApp`);
                      }
 
                      const requestData = {
                          businessId: business._id,
                          ownerId: business.ownerId || business._id,
                          contactId: contact._id,
-                         title: `${action.variables.selected_service || action.variables.service || 'WhatsApp'} Service Request`,
+                         title: requestTitle,
                          description: dynamicDescription.join('\n'),
                          status: "pending",
+                         paymentStatus: "pending", // Bug 5
                          source: "whatsapp",
                          category: "service"
                      };
