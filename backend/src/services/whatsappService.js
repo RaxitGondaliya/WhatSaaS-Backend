@@ -132,9 +132,40 @@ class WhatsappService {
                  const Request = require('../models/Request');
                  const Contact = require('../models/Contact');
                  
+                 const ChatbotFlow = require('../models/ChatbotFlow');
+                 const flow = await ChatbotFlow.findById(chatSession.currentFlowId);
+                 
+                 let nameVariableKey = null;
+                 let serviceVariableKey = null;
+                 let buttonTexts = new Set(['YES', 'NO', 'CANCEL', 'CONFIRM']);
+
+                 if (flow && flow.nodes && flow.nodes.length > 0) {
+                     // 1. FIRST node variable -> Contact Name
+                     const firstNode = flow.nodes[0];
+                     nameVariableKey = firstNode.variable || (firstNode.data && firstNode.data.variable) || null;
+
+                     // 2. FIRST BUTTON node variable -> Request Title
+                     for (const node of flow.nodes) {
+                         const buttons = node.buttons || (node.data && node.data.buttons) || [];
+                         for (const b of buttons) {
+                             if (b.text) buttonTexts.add(b.text.toUpperCase().trim());
+                         }
+                         if (!serviceVariableKey && buttons.length > 0) {
+                             serviceVariableKey = node.variable || (node.data && node.data.variable) || null;
+                         }
+                     }
+                 }
+
+                 let rawCustomerName = nameVariableKey ? action.variables[nameVariableKey] : (action.variables.customer_name || action.variables.name || profileName || 'WhatsApp Customer');
+                 
+                 // Sanity Check: Never use a button payload as a real customer name
+                 if (rawCustomerName && buttonTexts.has(rawCustomerName.toString().toUpperCase().trim())) {
+                     rawCustomerName = profileName || 'WhatsApp Customer';
+                 }
+                 const customerName = rawCustomerName;
+
                  const customerAddress = action.variables.customer_address || action.variables.address || '';
                  const customerCity = action.variables.customer_city || action.variables.city || '';
-                 const customerName = action.variables.customer_name || action.variables.name || profileName || 'WhatsApp Customer';
 
                  // 1. Upsert Contact to avoid duplicates and update address/city
                  const contact = await Contact.findOneAndUpdate(
@@ -161,31 +192,34 @@ class WhatsappService {
                  if (recentRequest) {
                      console.log(`[Session] Preventing duplicate request creation for ${from} within 60s.`);
                  } else {
-                     // Determine service type for title (Bug 2)
-                     const serviceKeys = Object.keys(action.variables || {}).filter(k => k.toLowerCase().includes('service') || k.toLowerCase().includes('type') || k.toLowerCase().includes('category'));
-                     const serviceType = serviceKeys.length > 0 ? action.variables[serviceKeys[0]] : null;
+                     // 3. Determine service type for title exactly from the first button node
+                     const serviceType = serviceVariableKey ? action.variables[serviceVariableKey] : (action.variables.selected_service || action.variables.service || null);
                      
                      if (!serviceType) {
                         console.warn(`[Request Title Warning] Could not determine service type from variables for flow ${business._id}. Falling back to generic title.`);
                      }
-                     const requestTitle = serviceType ? `${serviceType} Service Request` : `WhatsApp Service Request`;
+                     const requestTitle = serviceType ? String(serviceType) : `WhatsApp Booking`;
 
-                     // 3. Dynamically format variables into description (Bug 3)
+                     // 4. Dynamically format variables into description
                      let dynamicDescription = [];
-                     const excludedKeys = ['customer_name', 'name', 'customer_address', 'address', 'customer_city', 'city', 'phone'];
-                     if (serviceKeys.length > 0) excludedKeys.push(serviceKeys[0]);
+                     const excludedKeys = ['customer_address', 'address', 'customer_city', 'city', 'phone'];
+                     
+                     if (nameVariableKey) excludedKeys.push(nameVariableKey.toLowerCase());
+                     else excludedKeys.push('customer_name', 'name');
+                     
+                     if (serviceVariableKey) excludedKeys.push(serviceVariableKey.toLowerCase());
+                     else excludedKeys.push('selected_service', 'service');
 
                      for (const [key, value] of Object.entries(action.variables || {})) {
                          if (key.startsWith('__')) continue;
                          if (excludedKeys.includes(key.toLowerCase())) continue;
                          
-                         // Format key (e.g., 'problem_desc' -> 'Problem Desc')
                          const readableKey = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
                          dynamicDescription.push(`${readableKey}: ${value}`);
                      }
                      
                      if (dynamicDescription.length === 0) {
-                        dynamicDescription.push(`Request submitted via WhatsApp`);
+                        dynamicDescription.push(`Booking request via WhatsApp`);
                      }
 
                      const requestData = {
@@ -195,14 +229,17 @@ class WhatsappService {
                          title: requestTitle,
                          description: dynamicDescription.join('\n'),
                          status: "pending",
-                         paymentStatus: "pending", // Bug 5
+                         paymentStatus: "pending",
                          source: "whatsapp",
                          category: "service"
                      };
 
-                     console.log("Final Session Variables:", action.variables);
-                     console.log("Request Data:", requestData);
-                     console.log("WhatsApp Profile Name:", profileName);
+                     console.log("=========================================");
+                     console.log("[Request Creation Logs] Flow ID:", chatSession.currentFlowId);
+                     console.log("Name Variable Key:", nameVariableKey, "-> Value Used:", customerName);
+                     console.log("Title Variable Key:", serviceVariableKey, "-> Value Used:", requestTitle);
+                     console.log("Leftover Variables for Description:", dynamicDescription);
+                     console.log("=========================================");
 
                      await Request.create(requestData);
                      console.log(`[Session] Flow completed and request created for ${from}`);
