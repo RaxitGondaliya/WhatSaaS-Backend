@@ -347,10 +347,18 @@ class WhatsappService {
             type: "interactive",
             interactive: {
               type: "button",
-              body: { text: replyData.text || 'Please select an option:' },
+              body: { text: replyData.text || replyData.caption || 'Please select an option:' },
               action: { buttons: buttonsPayload }
             }
           };
+          
+          // If it's an Image message but has buttons, attach image as header
+          if (replyData.type === 'Image' && replyData.imageUrl) {
+            payload.interactive.header = {
+              type: "image",
+              image: { link: replyData.imageUrl }
+            };
+          }
         } else {
           // Fallback if no buttons found despite type
           payload = {
@@ -359,6 +367,19 @@ class WhatsappService {
             type: "text",
             text: { body: replyData.text || 'No options available.' }
           };
+        }
+      } else if (replyData.type === 'Image' && replyData.imageUrl) {
+        payload = {
+          messaging_product: "whatsapp",
+          to: to,
+          type: "image",
+          image: {
+            link: replyData.imageUrl
+          }
+        };
+        const captionText = replyData.caption || replyData.text;
+        if (captionText) {
+          payload.image.caption = captionText;
         }
       } else {
         payload = {
@@ -375,6 +396,9 @@ class WhatsappService {
          return null;
       } else if (payload.type === 'interactive' && (!payload.interactive.body || !payload.interactive.body.text)) {
          console.error("Payload interactive body is empty!");
+         return null;
+      } else if (payload.type === 'image' && (!payload.image || !payload.image.link)) {
+         console.error("Payload image link is empty!");
          return null;
       }
 

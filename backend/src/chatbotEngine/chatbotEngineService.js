@@ -196,6 +196,8 @@ class ChatbotEngineService {
           const replyData = {
             type: rawTarget.type || rawData.type || targetNode.type || 'Text',
             text: targetNode.text,
+            caption: targetNode.caption || rawTarget.caption || rawData.caption,
+            imageUrl: targetNode.imageUrl || rawTarget.imageUrl || rawData.imageUrl,
             buttons: replyButtons,
             sessionAction
           };
@@ -318,6 +320,8 @@ class ChatbotEngineService {
       const replyData = {
         type: rawTarget.type || rawData.type || targetNode.type || 'Text',
         text: targetNode.text,
+        caption: targetNode.caption || rawTarget.caption || rawData.caption,
+        imageUrl: targetNode.imageUrl || rawTarget.imageUrl || rawData.imageUrl,
         buttons: replyButtons
       };
 

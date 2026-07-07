@@ -240,6 +240,7 @@ exports.createFlow = async (req, res, next) => {
       status: normalizedStatus,
       nodes: normalizeArray(nodes).map((n, i) => {
         if (!n.id) n.id = `node_${i}`;
+        if (n.localImagePreview) delete n.localImagePreview;
         return n;
       }),
       edges: normalizeArray(edges),
@@ -420,6 +421,7 @@ exports.updateFlow = async (req, res, next) => {
 
       updates.nodes = normalizeArray(updates.nodes).map((n, i) => {
         if (!n.id) n.id = `node_${i}`;
+        if (n.localImagePreview) delete n.localImagePreview;
         return n;
       });
     }
