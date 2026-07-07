@@ -14,5 +14,6 @@ router.delete('/:id', broadcastCampaignController.deleteCampaign);
 router.put('/:id/schedule', broadcastCampaignController.scheduleCampaign);
 router.put('/:id/save-draft', broadcastCampaignController.saveDraft);
 router.put('/:id/cancel', broadcastCampaignController.cancelCampaign);
+router.post('/:id/send', broadcastCampaignController.sendCampaign);
 
 module.exports = router;

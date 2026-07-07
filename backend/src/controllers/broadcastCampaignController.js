@@ -1,6 +1,8 @@
 const BroadcastCampaign = require('../models/BroadcastCampaign');
 const Contact = require('../models/Contact');
 const User = require('../models/User');
+const WhatsAppConfig = require('../models/WhatsAppConfig');
+const whatsappService = require('../services/whatsappService');
 
 const VALID_CAMPAIGN_TYPES = ['marketing', 'utility', 'reminder', 'custom'];
 const VALID_MESSAGE_FORMATS = ['text', 'image', 'video', 'document'];
@@ -674,6 +676,130 @@ exports.cancelCampaign = async (req, res, next) => {
       message: 'Broadcast campaign cancelled successfully',
       campaign: formatCampaign(campaign),
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/broadcast-campaigns/:id/send
+ * Send the broadcast campaign
+ */
+exports.sendCampaign = async (req, res, next) => {
+  try {
+    const scope = await getCampaignScope(req.user.id);
+    if (sendScopeError(res, scope)) return;
+
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id })).populate('selectedContacts');
+
+    if (!campaign) {
+      return res.status(404).json({ success: false, message: 'Broadcast campaign not found' });
+    }
+
+    if (campaign.status === 'sent' || campaign.status === 'cancelled') {
+      return res.status(400).json({ success: false, message: `Cannot send campaign with status: ${campaign.status}` });
+    }
+
+    // Load WhatsAppConfig
+    const whatsappConfig = await WhatsAppConfig.findOne({ businessId: scope.businessId });
+    if (!whatsappConfig || !whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) {
+      return res.status(400).json({ success: false, message: 'WhatsApp configuration (access token or phone number ID) is missing for this business' });
+    }
+
+    // Determine recipients
+    let recipients = [];
+    if (campaign.recipientsType === 'all_contacts') {
+      recipients = await Contact.find(buildContactQuery(scope));
+    } else if (campaign.recipientsType === 'contact_group') {
+      const contactGroup = normalizeOptionalString(campaign.contactGroup);
+      if (contactGroup) {
+        recipients = await Contact.find(buildContactQuery(scope, { tags: contactGroup }));
+      }
+    } else if (campaign.recipientsType === 'selected_contacts') {
+      recipients = campaign.selectedContacts || [];
+    }
+
+    if (recipients.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid recipients found for this campaign' });
+    }
+
+    // Convert message format to replyData format expected by whatsappService
+    let replyType = 'Text';
+    if (campaign.messageFormat === 'image') {
+       replyType = 'Image';
+    } else if (campaign.messageFormat === 'video') {
+       replyType = 'Video';
+    } else if (campaign.messageFormat === 'document') {
+       replyType = 'Document';
+    }
+
+    const replyData = {
+      type: replyType,
+      text: campaign.messageContent,
+      imageUrl: campaign.mediaUrl, // Used if type is Image
+      caption: campaign.messageContent, // Used if type is Image
+      buttons: (campaign.buttons || []).map((b, i) => ({
+        buttonId: `broadcast_${campaign._id}_btn_${i}`,
+        text: b.text
+      }))
+    };
+
+    let sent = 0;
+    let failed = 0;
+    let pending = 0;
+
+    for (const contact of recipients) {
+      if (!contact.phone) {
+        failed++;
+        continue;
+      }
+
+      // Simple variable substitution
+      const personalizedReplyData = {
+        ...replyData,
+        text: replyData.text ? replyData.text.replace(/\{\{name\}\}/gi, contact.name || 'Customer') : '',
+        caption: replyData.caption ? replyData.caption.replace(/\{\{name\}\}/gi, contact.name || 'Customer') : ''
+      };
+
+      try {
+        const response = await whatsappService.sendMessage(
+          contact.phone,
+          personalizedReplyData,
+          whatsappConfig.phoneNumberId,
+          whatsappConfig.accessToken
+        );
+
+        if (response && response.messages && response.messages.length > 0) {
+          sent++;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        console.error(`Failed to send broadcast to ${contact.phone}:`, err.message);
+        failed++;
+      }
+    }
+
+    // Update campaign metrics
+    campaign.status = 'sent';
+    campaign.sentAt = new Date();
+    campaign.totalSent = sent;
+    campaign.totalFailed = failed;
+    campaign.totalDelivered = 0;
+    
+    await campaign.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Broadcast campaign processed successfully',
+      summary: {
+        totalRecipients: recipients.length,
+        sent,
+        failed,
+        pending
+      }
+    });
+
   } catch (error) {
     next(error);
   }
