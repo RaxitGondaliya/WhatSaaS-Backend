@@ -1,4 +1,4 @@
-const cloudinary = require('../config/cloudinary');
+const cloudinary = require('cloudinary').v2;
 const fs = require('fs');
 
 /**
@@ -14,17 +14,34 @@ exports.uploadImage = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No image file provided' });
     }
 
-    // Validate Cloudinary Config
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-      console.error('[uploadImage] Cloudinary configuration is missing');
+    // 1. Verify Cloudinary Config from process.env
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+    const missingKeys = [];
+    if (!cloudName) missingKeys.push('CLOUDINARY_CLOUD_NAME');
+    if (!apiKey) missingKeys.push('CLOUDINARY_API_KEY');
+    if (!apiSecret) missingKeys.push('CLOUDINARY_API_SECRET');
+
+    if (missingKeys.length > 0) {
+      missingKeys.forEach(key => console.error(`[uploadImage] ${key} missing`));
+      
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
       return res.status(500).json({
         success: false,
-        message: 'Server configuration error: Cloudinary keys are missing.',
+        message: `Server configuration error: ${missingKeys.join(', ')} missing.`,
       });
     }
+
+    // Initialize Cloudinary only when upload endpoint is actually called
+    cloudinary.config({
+      cloud_name: cloudName,
+      api_key: apiKey,
+      api_secret: apiSecret,
+    });
 
     // Validate size (10MB limit)
     const MAX_SIZE = 10 * 1024 * 1024;
