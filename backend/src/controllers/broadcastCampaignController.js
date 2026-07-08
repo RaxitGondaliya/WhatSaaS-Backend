@@ -747,10 +747,12 @@ exports.sendCampaign = async (req, res, next) => {
     let sent = 0;
     let failed = 0;
     let pending = 0;
+    let errors = [];
 
     for (const contact of recipients) {
       if (!contact.phone) {
         failed++;
+        errors.push({ phone: 'unknown', error: 'Contact has no phone number' });
         continue;
       }
 
@@ -766,17 +768,40 @@ exports.sendCampaign = async (req, res, next) => {
           contact.phone,
           personalizedReplyData,
           whatsappConfig.phoneNumberId,
-          whatsappConfig.accessToken
+          whatsappConfig.accessToken,
+          true // throwError
         );
 
         if (response && response.messages && response.messages.length > 0) {
           sent++;
         } else {
           failed++;
+          errors.push({ phone: contact.phone, error: 'Failed to send WhatsApp reply, no message ID returned' });
         }
       } catch (err) {
         console.error(`Failed to send broadcast to ${contact.phone}:`, err.message);
         failed++;
+        
+        let errorMessage = err.message;
+        
+        // Detailed Meta API error tracking
+        if (err.response && err.response.data && err.response.data.error) {
+          const metaError = err.response.data.error;
+          console.error(`Meta API Error for ${contact.phone}:`, JSON.stringify(metaError));
+          
+          const metaMsg = (metaError.message || '').toLowerCase();
+          const metaCode = metaError.code;
+
+          if (metaCode === 131031 || metaCode === 131030 || metaMsg.includes('test recipient') || metaMsg.includes('allowed list')) {
+             errorMessage = "This recipient is not registered as a Meta test recipient.";
+          } else if (metaCode === 131047 || metaMsg.includes('24 hours') || metaMsg.includes('outside the allowed window') || metaMsg.includes('template')) {
+             errorMessage = "Marketing messages require an approved WhatsApp Template.";
+          } else {
+             errorMessage = metaError.message || JSON.stringify(metaError);
+          }
+        }
+        
+        errors.push({ phone: contact.phone, error: errorMessage });
       }
     }
 
@@ -796,7 +821,8 @@ exports.sendCampaign = async (req, res, next) => {
         totalRecipients: recipients.length,
         sent,
         failed,
-        pending
+        pending,
+        errors
       }
     });
 

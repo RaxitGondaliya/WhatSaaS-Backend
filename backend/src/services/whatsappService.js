@@ -309,8 +309,9 @@ class WhatsappService {
    * @param {Object} replyData - { text, buttons }
    * @param {string} phoneNumberId - The client's specific WhatsApp Phone Number ID
    * @param {string} businessToken - The client's specific WhatsApp Access Token
+   * @param {boolean} throwError - Whether to throw the error or catch and return null
    */
-  async sendMessage(to, replyData, phoneNumberId, businessToken) {
+  async sendMessage(to, replyData, phoneNumberId, businessToken, throwError = false) {
     try {
       if (!businessToken || !phoneNumberId) {
         console.error("Missing Business Access Token or Phone Number ID.");
@@ -431,6 +432,9 @@ class WhatsappService {
         console.error('No response received from Meta API:', error.request);
       } else {
         console.error('Request Setup Error:', error.message);
+      }
+      if (throwError) {
+        throw error;
       }
       return null;
     }
