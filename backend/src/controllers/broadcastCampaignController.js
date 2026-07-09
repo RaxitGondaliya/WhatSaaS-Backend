@@ -731,6 +731,32 @@ exports.sendCampaign = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No valid recipients found for this campaign' });
     }
 
+    console.log('\n--- Broadcast Recipient Resolution ---');
+    console.log(`Total Recipients Loaded: ${recipients.length}`);
+    recipients.forEach((r, idx) => {
+      console.log(`[${idx + 1}] ID: ${r._id || r.id}, Name: ${r.name || 'Unknown'}, Phone: ${r.phone || 'Unknown'}`);
+    });
+
+    // Remove duplicates based on phone number
+    const uniquePhoneNumbers = new Set();
+    const uniqueRecipients = [];
+
+    for (const contact of recipients) {
+      if (contact && contact.phone) {
+        if (!uniquePhoneNumbers.has(contact.phone)) {
+          uniquePhoneNumbers.add(contact.phone);
+          uniqueRecipients.push(contact);
+        } else {
+          console.log(`[Duplicate Filter] Skipping duplicate phone number: ${contact.phone} for contact ID: ${contact._id || contact.id}`);
+        }
+      } else {
+        uniqueRecipients.push(contact);
+      }
+    }
+
+    console.log(`Unique Recipients Count: ${uniqueRecipients.length}`);
+    console.log('--------------------------------------\n');
+
     // Convert message format to replyData format expected by whatsappService
     let replyType = 'Text';
     if (campaign.messageFormat === 'image') {
@@ -757,12 +783,14 @@ exports.sendCampaign = async (req, res, next) => {
     let pending = 0;
     let errors = [];
 
-    for (const contact of recipients) {
+    for (const contact of uniqueRecipients) {
       if (!contact.phone) {
         failed++;
         errors.push({ phone: 'unknown', error: 'Contact has no phone number' });
         continue;
       }
+
+      console.log(`Sending to: ${contact.phone}`);
 
       // Simple variable substitution
       const personalizedReplyData = {
@@ -827,6 +855,7 @@ exports.sendCampaign = async (req, res, next) => {
       message: 'Broadcast campaign processed successfully',
       summary: {
         totalRecipients: recipients.length,
+        uniqueRecipients: uniqueRecipients.length,
         sent,
         failed,
         pending,
