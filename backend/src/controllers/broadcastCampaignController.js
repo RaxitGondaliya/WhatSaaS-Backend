@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const BroadcastCampaign = require('../models/BroadcastCampaign');
 const Contact = require('../models/Contact');
 const User = require('../models/User');
@@ -690,7 +691,7 @@ exports.sendCampaign = async (req, res, next) => {
     const scope = await getCampaignScope(req.user.id);
     if (sendScopeError(res, scope)) return;
 
-    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id })).populate('selectedContacts');
+    const campaign = await BroadcastCampaign.findOne(buildScopedQuery(scope, { _id: req.params.id }));
 
     if (!campaign) {
       return res.status(404).json({ success: false, message: 'Broadcast campaign not found' });
@@ -724,7 +725,38 @@ exports.sendCampaign = async (req, res, next) => {
         recipients = await Contact.find(buildContactQuery(scope, { tags: contactGroup }));
       }
     } else if (campaign.recipientsType === 'selected_contacts') {
-      recipients = campaign.selectedContacts || [];
+      console.log('\n--- DEBUG: BROADCAST RECIPIENT LOADING ---');
+      console.log('campaign.selectedContacts (raw from DB):', campaign.selectedContacts);
+
+      // Verify ObjectId conversion
+      const selectedContactIds = (campaign.selectedContacts || []).map(id => {
+        try {
+          return new mongoose.Types.ObjectId(id.toString());
+        } catch (e) {
+          console.error(`[Error] Invalid ObjectId format: ${id}`);
+          return null;
+        }
+      }).filter(Boolean);
+
+      console.log(`Number of IDs received: ${selectedContactIds.length}`);
+
+      // Query MongoDB using all selected contact IDs
+      const query = buildContactQuery(scope, { _id: { $in: selectedContactIds } });
+      recipients = await Contact.find(query);
+
+      console.log(`Contacts Loaded: ${recipients.length}`);
+      recipients.forEach((contact, idx) => {
+        console.log(`${idx + 1}.\nName: ${contact.name}\nPhone: ${contact.phone}\n_id: ${contact._id}`);
+      });
+
+      // Verify no filter is removing contacts
+      if (selectedContactIds.length !== recipients.length) {
+        console.log(`\n[WARNING] Mismatch detected: Selected (${selectedContactIds.length}) vs Loaded (${recipients.length})`);
+        console.log('This means some selected contacts were filtered out by buildContactQuery (e.g. status != active, isDeleted = true) or deleted.');
+      } else {
+        console.log('\nAll selected contacts successfully loaded.');
+      }
+      console.log('------------------------------------------\n');
     }
 
     if (recipients.length === 0) {
@@ -790,7 +822,7 @@ exports.sendCampaign = async (req, res, next) => {
         continue;
       }
 
-      console.log(`Sending to: ${contact.phone}`);
+      console.log(`Sending to Recipient Name: ${contact.name || 'Unknown'}, Recipient Phone: ${contact.phone}`);
 
       // Simple variable substitution
       const personalizedReplyData = {
