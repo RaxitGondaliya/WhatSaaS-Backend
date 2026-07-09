@@ -19,6 +19,24 @@ const normalizeText = (value) => {
   return value.trim().toLowerCase();
 };
 
+const interpolateBroadcastText = (text, contact) => {
+  if (!text) return '';
+  
+  const values = {
+    customer_name: contact.name || '',
+    customer_phone: contact.phone || '',
+  };
+
+  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, variableName) => {
+    const key = variableName.toLowerCase();
+    if (values[key] !== undefined) {
+      return values[key];
+    }
+    // If the variable is not supported or missing, replace with empty string as per requirements
+    return '';
+  });
+};
+
 const normalizeEnumText = (value) => {
   if (typeof value !== 'string') {
     return value;
@@ -824,11 +842,11 @@ exports.sendCampaign = async (req, res, next) => {
 
       console.log(`Sending to Recipient Name: ${contact.name || 'Unknown'}, Recipient Phone: ${contact.phone}`);
 
-      // Simple variable substitution
+      // Dynamic Variable Replacement
       const personalizedReplyData = {
         ...replyData,
-        text: replyData.text ? replyData.text.replace(/\{\{name\}\}/gi, contact.name || 'Customer') : '',
-        caption: replyData.caption ? replyData.caption.replace(/\{\{name\}\}/gi, contact.name || 'Customer') : ''
+        text: interpolateBroadcastText(replyData.text, contact),
+        caption: interpolateBroadcastText(replyData.caption, contact)
       };
 
       try {
