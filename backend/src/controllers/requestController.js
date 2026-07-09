@@ -366,13 +366,15 @@ exports.getRequests = async (req, res, next) => {
     // 2. LIST FILTERING
     const query = { ...baseQuery };
 
-    if (status) {
+    if (status && status !== 'all') {
       if (status === 'pending_payments' || status === 'pending_payment') {
         query.status = 'completed';
         query.paymentStatus = 'pending';
       } else {
         query.status = normalizeText(status);
       }
+    } else {
+      query.status = { $ne: 'cancelled' };
     }
 
     if (priority) query.priority = normalizeText(priority);
@@ -900,6 +902,10 @@ exports.cancelRequest = async (req, res, next) => {
     addTimelineEvent(request, 'Request Cancelled', request.completionNotes, scope.currentUser._id);
 
     await request.save();
+    
+    await request.populate('contactId', 'name phone email address city');
+    await request.populate('assignedTo', 'fullName email role');
+    await request.populate('internalNotes.createdBy', 'fullName');
 
     res.status(200).json({
       success: true,
