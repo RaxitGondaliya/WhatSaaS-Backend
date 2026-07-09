@@ -700,6 +700,14 @@ exports.sendCampaign = async (req, res, next) => {
       return res.status(400).json({ success: false, message: `Cannot send campaign with status: ${campaign.status}` });
     }
 
+    if (!campaign.messageContent && campaign.messageFormat === 'text') {
+      return res.status(400).json({ success: false, message: 'Message content is required to send a text campaign' });
+    }
+
+    if (campaign.messageFormat !== 'text' && !campaign.mediaUrl) {
+      return res.status(400).json({ success: false, message: 'Media URL is required to send a media campaign' });
+    }
+
     // Load WhatsAppConfig
     const whatsappConfig = await WhatsAppConfig.findOne({ businessId: scope.businessId });
     if (!whatsappConfig || !whatsappConfig.accessToken || !whatsappConfig.phoneNumberId) {
