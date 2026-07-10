@@ -433,6 +433,15 @@ exports.createCampaign = async (req, res, next) => {
     applyRecipientRules(campaignData);
     applyMessageFormatRules(campaignData);
 
+    if (campaignData.messageFormat !== 'text') {
+      if (campaignData.mediaUrl && (campaignData.mediaUrl.startsWith('data:') || !campaignData.mediaUrl.startsWith('http'))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Base64 and invalid URLs are not supported. Please use a public image URL (e.g., Cloudinary).'
+        });
+      }
+    }
+
     if (campaignData.recipientsType === 'contact_group' && !campaignData.contactGroup) {
       return res.status(400).json({
         success: false,
@@ -533,6 +542,15 @@ exports.updateCampaign = async (req, res, next) => {
     Object.assign(campaign, payload);
     applyRecipientRules(campaign);
     applyMessageFormatRules(campaign);
+
+    if (campaign.messageFormat !== 'text') {
+      if (campaign.mediaUrl && (campaign.mediaUrl.startsWith('data:') || !campaign.mediaUrl.startsWith('http'))) {
+        return res.status(400).json({
+          success: false,
+          message: 'Base64 and invalid URLs are not supported. Please use a public image URL (e.g., Cloudinary).'
+        });
+      }
+    }
 
     if (campaign.recipientsType === 'contact_group' && !campaign.contactGroup) {
       return res.status(400).json({
@@ -723,8 +741,13 @@ exports.sendCampaign = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Message content is required to send a text campaign' });
     }
 
-    if (campaign.messageFormat !== 'text' && !campaign.mediaUrl) {
-      return res.status(400).json({ success: false, message: 'Media URL is required to send a media campaign' });
+    if (campaign.messageFormat !== 'text') {
+      if (!campaign.mediaUrl) {
+        return res.status(400).json({ success: false, message: 'Media URL is required to send a media campaign' });
+      }
+      if (campaign.mediaUrl.startsWith('data:') || !campaign.mediaUrl.startsWith('http')) {
+        return res.status(400).json({ success: false, message: 'Base64 and invalid URLs are not supported. Please use a public image URL (e.g., Cloudinary).' });
+      }
     }
 
     // Load WhatsAppConfig
@@ -808,25 +831,45 @@ exports.sendCampaign = async (req, res, next) => {
     console.log('--------------------------------------\n');
 
     // Convert message format to replyData format expected by whatsappService
-    let replyType = 'Text';
+    let replyData = {};
+
     if (campaign.messageFormat === 'image') {
-       replyType = 'Image';
+      replyData = {
+        type: 'Image',
+        imageUrl: campaign.mediaUrl,
+        caption: campaign.messageContent,
+        text: campaign.messageContent,
+      };
     } else if (campaign.messageFormat === 'video') {
-       replyType = 'Video';
+      replyData = {
+        type: 'Video',
+        videoUrl: campaign.mediaUrl,
+        caption: campaign.messageContent,
+        text: campaign.messageContent,
+      };
     } else if (campaign.messageFormat === 'document') {
-       replyType = 'Document';
+      replyData = {
+        type: 'Document',
+        documentUrl: campaign.mediaUrl,
+        documentName: campaign.mediaName || 'Document',
+        caption: campaign.messageContent,
+        text: campaign.messageContent,
+      };
+    } else {
+      replyData = {
+        type: 'Text',
+        text: campaign.messageContent,
+      };
     }
 
-    const replyData = {
-      type: replyType,
-      text: campaign.messageContent,
-      imageUrl: campaign.mediaUrl, // Used if type is Image
-      caption: campaign.messageContent, // Used if type is Image
-      buttons: (campaign.buttons || []).map((b, i) => ({
-        buttonId: `broadcast_${campaign._id}_btn_${i}`,
-        text: b.text
-      }))
-    };
+    const replyButtons = (campaign.buttons || []).map((b, i) => ({
+      buttonId: `broadcast_${campaign._id}_btn_${i}`,
+      text: b.text
+    }));
+
+    if (replyButtons.length > 0) {
+      replyData.buttons = replyButtons;
+    }
 
     let sent = 0;
     let failed = 0;
