@@ -121,8 +121,8 @@ const broadcastCampaignSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['draft', 'scheduled', 'sent', 'cancelled'],
-        message: 'Status must be draft, scheduled, sent, or cancelled',
+        values: ['draft', 'scheduled', 'processing', 'sent', 'failed', 'cancelled'],
+        message: 'Status must be draft, scheduled, processing, sent, failed, or cancelled',
       },
       default: 'draft',
     },
@@ -145,6 +145,10 @@ const broadcastCampaignSchema = new mongoose.Schema(
     totalFailed: {
       type: Number,
       default: 0,
+    },
+    failureReason: {
+      type: String,
+      default: '',
     },
   },
   {

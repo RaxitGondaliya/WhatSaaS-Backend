@@ -4,6 +4,7 @@ const connectDB = require('./src/config/db');
 const emailConfig = require('./src/config/email'); // Initialize email config on startup
 
 const PORT = process.env.PORT || 5000;
+const { startScheduler } = require('./src/services/broadcastSchedulerService');
 
 // Auto-seed test data for webhook development
 const setupWebhookTestBusiness = async () => {
@@ -102,6 +103,7 @@ const setupWebhookTestBusiness = async () => {
 // Connect to MongoDB and then Start Server
 connectDB().then(async () => {
   await setupWebhookTestBusiness();
+  startScheduler();
   app.listen(PORT, () => {
     console.log(`\n${'='.repeat(50)}`);
     console.log(`✓ Server running on port ${PORT}`);
