@@ -103,6 +103,7 @@ exports.getOverview = async (req, res, next) => {
     const contactQuery = {
       ...baseQuery,
       isDeleted: false,
+      status: 'active',
     };
 
     const [
@@ -120,10 +121,23 @@ exports.getOverview = async (req, res, next) => {
       Request.countDocuments(baseQuery),
       Request.countDocuments({ ...baseQuery, status: 'pending' }),
       Request.countDocuments({ ...baseQuery, status: 'completed' }),
-      BroadcastCampaign.countDocuments({ ...baseQuery, status: { $in: ['scheduled'] } }),
+      BroadcastCampaign.countDocuments({ ...baseQuery, status: 'sent' }),
       BroadcastCampaign.aggregate([
         { $match: baseQuery },
-        { $group: { _id: null, messagesSent: { $sum: '$totalSent' } } },
+        { 
+          $group: { 
+            _id: null, 
+            messagesSent: { 
+              $sum: {
+                $cond: [
+                  { $gt: ['$totalDelivered', 0] },
+                  '$totalDelivered',
+                  '$totalSent'
+                ]
+              }
+            } 
+          } 
+        },
       ]),
       Request.find(baseQuery)
         .populate('contactId', 'name phone email')
