@@ -622,6 +622,20 @@ exports.scheduleCampaign = async (req, res, next) => {
       });
     }
 
+    if (['scheduled', 'processing', 'sent'].includes(campaign.status)) {
+      return res.status(409).json({
+        success: false,
+        message: 'This campaign has already been scheduled.'
+      });
+    }
+
+    if (campaign.status === 'cancelled') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot schedule a cancelled campaign.',
+      });
+    }
+
     if (!req.body.scheduleAt) {
       return res.status(400).json({
         success: false,
@@ -637,17 +651,33 @@ exports.scheduleCampaign = async (req, res, next) => {
       });
     }
 
-    campaign.status = 'scheduled';
-    campaign.scheduleAt = scheduleAt;
-    campaign.updatedBy = scope.currentUser._id;
-    campaign.estimatedRecipients = await calculateEstimatedRecipients(scope, campaign);
+    const estimatedRecipients = await calculateEstimatedRecipients(scope, campaign);
 
-    await campaign.save();
+    // Atomically update only if the status hasn't changed (prevents race conditions from double clicks)
+    const updatedCampaign = await BroadcastCampaign.findOneAndUpdate(
+      buildScopedQuery(scope, { _id: req.params.id, status: campaign.status }),
+      {
+        $set: {
+          status: 'scheduled',
+          scheduleAt: scheduleAt,
+          updatedBy: scope.currentUser._id,
+          estimatedRecipients: estimatedRecipients
+        }
+      },
+      { new: true }
+    );
+
+    if (!updatedCampaign) {
+      return res.status(409).json({
+        success: false,
+        message: 'This campaign has already been scheduled.'
+      });
+    }
 
     res.status(200).json({
       success: true,
       message: 'Broadcast campaign scheduled successfully',
-      campaign: formatCampaign(campaign),
+      campaign: formatCampaign(updatedCampaign),
     });
   } catch (error) {
     next(error);
