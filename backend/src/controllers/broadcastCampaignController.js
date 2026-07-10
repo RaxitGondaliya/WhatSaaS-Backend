@@ -943,17 +943,32 @@ exports.sendCampaign = async (req, res, next) => {
     
     await campaign.save();
 
+    if (sent === 0 && failed > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Failed to send broadcast campaign.',
+        campaignId: campaign._id,
+        status: campaign.status,
+        statistics: {
+          totalRecipients: uniqueRecipients.length,
+          sent,
+          failed
+        },
+        errors
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: 'Broadcast campaign processed successfully',
-      summary: {
-        totalRecipients: recipients.length,
-        uniqueRecipients: uniqueRecipients.length,
+      message: 'Broadcast campaign sent successfully.',
+      campaignId: campaign._id,
+      status: campaign.status,
+      statistics: {
+        totalRecipients: uniqueRecipients.length,
         sent,
-        failed,
-        pending,
-        errors
-      }
+        failed
+      },
+      errors
     });
 
   } catch (error) {
