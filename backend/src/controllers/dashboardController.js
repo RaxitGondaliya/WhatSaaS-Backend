@@ -106,6 +106,11 @@ exports.getOverview = async (req, res, next) => {
       status: 'active',
     };
 
+    const matchQuery = {
+      ...baseQuery,
+      status: { $in: ['sent', 'completed'] }
+    };
+
     const [
       totalContacts,
       totalRequests,
@@ -121,18 +126,18 @@ exports.getOverview = async (req, res, next) => {
       Request.countDocuments(baseQuery),
       Request.countDocuments({ ...baseQuery, status: 'pending' }),
       Request.countDocuments({ ...baseQuery, status: 'completed' }),
-      BroadcastCampaign.countDocuments({ ...baseQuery, status: 'sent' }),
+      BroadcastCampaign.countDocuments(matchQuery),
       BroadcastCampaign.aggregate([
-        { $match: baseQuery },
+        { $match: matchQuery },
         { 
           $group: { 
             _id: null, 
             messagesSent: { 
               $sum: {
                 $cond: [
-                  { $gt: ['$totalDelivered', 0] },
+                  { $gt: [{ $ifNull: ['$totalDelivered', 0] }, 0] },
                   '$totalDelivered',
-                  '$totalSent'
+                  { $ifNull: ['$totalSent', 0] }
                 ]
               }
             } 
