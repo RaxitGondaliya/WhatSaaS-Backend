@@ -1,5 +1,6 @@
 const Contact = require('../models/Contact');
 const User = require('../models/User');
+const { normalizePhone } = require('../utils/phoneUtils');
 
 const VALID_STATUSES = ['active', 'inactive', 'blocked'];
 const VALID_SOURCES = ['manual', 'import', 'whatsapp', 'chatbot'];
@@ -231,12 +232,13 @@ exports.createContact = async (req, res, next) => {
     }
 
     const scope = await getContactScope(currentUser);
-    const existingContact = await Contact.findOne(buildScopedQuery(scope, { phone }));
+    const normalizedPhone = normalizePhone(phone);
+    const existingContact = await Contact.findOne(buildScopedQuery(scope, { normalizedPhone }));
 
     if (existingContact) {
       return res.status(409).json({
         success: false,
-        message: 'Contact with this phone already exists',
+        message: 'Contact already exists with this mobile number.',
       });
     }
 
@@ -244,6 +246,7 @@ exports.createContact = async (req, res, next) => {
       ...scope,
       name,
       phone,
+      normalizedPhone,
       email: normalizedEmail,
       tags: normalizeTags(tags),
       status: normalizedStatus,
@@ -261,7 +264,7 @@ exports.createContact = async (req, res, next) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: 'Contact with this phone already exists',
+        message: 'Contact already exists with this mobile number.',
       });
     }
 
@@ -330,15 +333,16 @@ exports.updateContact = async (req, res, next) => {
     }
 
     if (req.body.phone && req.body.phone !== contact.phone) {
+      const newNormalizedPhone = normalizePhone(req.body.phone);
       const duplicateContact = await Contact.findOne(buildScopedQuery(scope, {
-        phone: req.body.phone,
+        normalizedPhone: newNormalizedPhone,
         _id: { $ne: contact._id },
       }));
 
       if (duplicateContact) {
         return res.status(409).json({
           success: false,
-          message: 'Contact with this phone already exists',
+          message: 'Contact already exists with this mobile number.',
         });
       }
     }
@@ -388,6 +392,7 @@ exports.updateContact = async (req, res, next) => {
 
     if (req.body.phone !== undefined) {
       contact.phone = req.body.phone;
+      contact.normalizedPhone = normalizePhone(req.body.phone);
     }
 
     if (req.body.tags !== undefined) {
@@ -409,7 +414,7 @@ exports.updateContact = async (req, res, next) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: 'Contact with this phone already exists',
+        message: 'Contact already exists with this mobile number.',
       });
     }
 
@@ -530,7 +535,8 @@ exports.importContacts = async (req, res, next) => {
         continue;
       }
 
-      const existingContact = await Contact.findOne(buildScopedQuery(scope, { phone: item.phone }));
+      const normalizedPhoneValue = normalizePhone(item.phone);
+      const existingContact = await Contact.findOne(buildScopedQuery(scope, { normalizedPhone: normalizedPhoneValue }));
 
       if (existingContact) {
         skippedCount += 1;
@@ -547,6 +553,7 @@ exports.importContacts = async (req, res, next) => {
           ...scope,
           name: item.name,
           phone: item.phone,
+          normalizedPhone: normalizedPhoneValue,
           email: normalizedEmail,
           tags: normalizeTags(item.tags),
           status: normalizedStatus,
@@ -610,7 +617,8 @@ exports.autoCreateContact = async (req, res, next) => {
     }
 
     const scope = await getContactScope(currentUser);
-    const existingContact = await Contact.findOne(buildScopedQuery(scope, { phone }));
+    const normalizedPhone = normalizePhone(phone);
+    const existingContact = await Contact.findOne(buildScopedQuery(scope, { normalizedPhone }));
 
     if (existingContact) {
       return res.status(200).json({
@@ -624,6 +632,7 @@ exports.autoCreateContact = async (req, res, next) => {
       ...scope,
       name,
       phone,
+      normalizedPhone,
       source,
       createdBy: currentUser._id,
     });
@@ -637,7 +646,7 @@ exports.autoCreateContact = async (req, res, next) => {
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: 'Contact with this phone already exists',
+        message: 'Contact already exists with this mobile number.',
       });
     }
 

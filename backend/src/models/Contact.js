@@ -22,6 +22,11 @@ const contactSchema = new mongoose.Schema(
       required: [true, 'Phone is required'],
       trim: true,
     },
+    normalizedPhone: {
+      type: String,
+      trim: true,
+      index: true,
+    },
     email: {
       type: String,
       default: '',
@@ -91,8 +96,8 @@ const contactSchema = new mongoose.Schema(
 );
 
 contactSchema.index(
-  { ownerId: 1, businessId: 1, phone: 1 },
-  { unique: true, partialFilterExpression: { isDeleted: false } }
+  { ownerId: 1, businessId: 1, normalizedPhone: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false, normalizedPhone: { $exists: true, $ne: null } } }
 );
 contactSchema.index({ name: 'text', phone: 'text', email: 'text' });
 
