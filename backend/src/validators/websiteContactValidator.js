@@ -1,4 +1,5 @@
 exports.validateContactForm = (req, res, next) => {
+  console.log('Contact request received');
   const { name, email, subject, message } = req.body;
   const errors = [];
 
@@ -28,5 +29,6 @@ exports.validateContactForm = (req, res, next) => {
     });
   }
 
+  console.log('Validation passed');
   next();
 };

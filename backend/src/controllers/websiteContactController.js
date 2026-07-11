@@ -4,7 +4,7 @@ exports.submitContactForm = async (req, res, next) => {
   try {
     const { name, email, mobile, company, subject, message } = req.body;
 
-    console.log(`[WebsiteContactController] Received contact form submission from: ${email}`);
+    console.log('Sending email...');
 
     // Send email using the dedicated email service
     await websiteContactEmailService.sendContactEmail({
@@ -16,6 +16,7 @@ exports.submitContactForm = async (req, res, next) => {
       message,
     });
 
+    console.log('Contact API completed');
     return res.status(200).json({
       success: true,
       message: 'Contact form submitted successfully.',

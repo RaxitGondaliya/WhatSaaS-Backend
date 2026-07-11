@@ -93,7 +93,7 @@ const sendContactEmail = async ({ name, email, mobile, company, subject, message
 
   try {
     const info = await transporter.sendMail(mailOptions);
-    console.log(`[ContactEmailService] Email sent successfully to ${receiverEmail}. Message ID: ${info.messageId}`);
+    console.log('Email sent successfully');
     return info;
   } catch (error) {
     console.error(`[ContactEmailService] Error sending email to ${receiverEmail}:`, error);
