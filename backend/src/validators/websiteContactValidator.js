@@ -2,11 +2,18 @@ exports.validateContactForm = (req, res, next) => {
   console.log('Contact request received');
   console.log('Incoming request body:', req.body);
   
-  const { fullName, email, subject, message } = req.body;
+  const { name, email, mobile, company, subject, message } = req.body;
   const errors = [];
 
-  if (!fullName || fullName.trim() === '') {
-    errors.push({ field: 'fullName', reason: 'Full Name is required.' });
+  if (!name || name.trim() === '') {
+    errors.push({ field: 'name', reason: 'Name is required.' });
+  }
+
+  if (mobile && mobile.trim() !== '') {
+    const cleanMobile = mobile.replace(/[\s\-\+\(\)]/g, '');
+    if (!/^\d{10,}$/.test(cleanMobile)) {
+      errors.push({ field: 'mobile', reason: 'Please provide a valid mobile number.' });
+    }
   }
 
   if (!email || email.trim() === '') {

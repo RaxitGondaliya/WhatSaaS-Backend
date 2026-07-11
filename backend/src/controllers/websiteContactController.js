@@ -3,13 +3,13 @@ const websiteContactEmailService = require('../services/websiteContactEmailServi
 exports.submitContactForm = async (req, res, next) => {
   try {
     console.log('Controller execution started');
-    const { fullName, email, mobile, company, subject, message } = req.body;
+    const { name, email, mobile, company, subject, message } = req.body;
 
     console.log('Sending email...');
 
     // Send email using the dedicated email service
     await websiteContactEmailService.sendContactEmail({
-      name: fullName,
+      name,
       email,
       mobile: mobile || '',
       company: company || '',
