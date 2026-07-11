@@ -1,22 +1,14 @@
-const nodemailer = require('nodemailer');
+const transporter = require('../config/email');
 
 const sendContactEmail = async ({ name, email, mobile, company, subject, message }) => {
   const receiverEmail = process.env.CONTACT_RECEIVER_EMAIL;
   
   if (!receiverEmail) {
-    console.error('[ContactEmailService] CONTACT_RECEIVER_EMAIL is not defined in environment variables.');
+    console.error('[Contact] ERROR: CONTACT_RECEIVER_EMAIL is not defined in environment variables.');
     throw new Error('Contact receiver email is not configured.');
   }
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  console.log('[Contact] Building email');
 
   const submittedTime = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
 
@@ -92,11 +84,12 @@ const sendContactEmail = async ({ name, email, mobile, company, subject, message
   };
 
   try {
+    console.log('[Contact] Sending email');
     const info = await transporter.sendMail(mailOptions);
-    console.log('Email sent successfully');
+    console.log('[Contact] Email sent successfully');
     return info;
   } catch (error) {
-    console.error(`[ContactEmailService] Error sending email to ${receiverEmail}:`, error);
+    console.error(`[Contact] ERROR:`, error.message || error);
     throw error;
   }
 };

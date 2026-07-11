@@ -1,6 +1,6 @@
 exports.validateContactForm = (req, res, next) => {
-  console.log('Contact request received');
-  console.log('Incoming request body:', req.body);
+  console.log('[Contact] Request received');
+  console.log('[Contact] Incoming request body:', req.body);
   
   const { name, email, mobile, company, subject, message } = req.body;
   const errors = [];
@@ -30,10 +30,10 @@ exports.validateContactForm = (req, res, next) => {
     errors.push({ field: 'message', reason: 'Message is required.' });
   }
 
-  console.log('Validation result:', errors.length === 0 ? 'Passed' : 'Failed', errors);
+  console.log('[Contact] Validation result:', errors.length === 0 ? 'Passed' : 'Failed', errors);
 
   if (errors.length > 0) {
-    console.log('Validation errors:', errors);
+    console.log('[Contact] Validation errors:', errors);
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
@@ -41,6 +41,6 @@ exports.validateContactForm = (req, res, next) => {
     });
   }
 
-  console.log('Validation passed');
+  console.log('[Contact] Validation passed');
   next();
 };
