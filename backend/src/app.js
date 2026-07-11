@@ -99,6 +99,7 @@ const chatbotSettingsRoutes = require('./routes/chatbotSettingsRoutes');
 const conversationRoutes = require('./routes/conversationRoutes');
 const metaRoutes = require('./routes/metaRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
+const websiteContactRoutes = require('./routes/websiteContactRoutes');
 
 app.use('/api/auth', authRoutes);
 app.use('/api', authRoutes); // Fallback alias for /api/signup and /api/login
@@ -118,6 +119,7 @@ app.use('/api/chatbot-settings', chatbotSettingsRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/meta', metaRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/contact', websiteContactRoutes);
 
 // 404 - Not Found Middleware
 app.use((req, res) => {
