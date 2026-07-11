@@ -1,27 +1,32 @@
 exports.validateContactForm = (req, res, next) => {
   console.log('Contact request received');
-  const { name, email, subject, message } = req.body;
+  console.log('Incoming request body:', req.body);
+  
+  const { fullName, email, subject, message } = req.body;
   const errors = [];
 
-  if (!name || name.trim() === '') {
-    errors.push('Name is required.');
+  if (!fullName || fullName.trim() === '') {
+    errors.push({ field: 'fullName', reason: 'Full Name is required.' });
   }
 
   if (!email || email.trim() === '') {
-    errors.push('Email is required.');
+    errors.push({ field: 'email', reason: 'Email is required.' });
   } else if (!/^\S+@\S+\.\S+$/.test(email)) {
-    errors.push('Please provide a valid email address.');
+    errors.push({ field: 'email', reason: 'Please provide a valid email address.' });
   }
 
   if (!subject || subject.trim() === '') {
-    errors.push('Subject is required.');
+    errors.push({ field: 'subject', reason: 'Subject is required.' });
   }
 
   if (!message || message.trim() === '') {
-    errors.push('Message is required.');
+    errors.push({ field: 'message', reason: 'Message is required.' });
   }
 
+  console.log('Validation result:', errors.length === 0 ? 'Passed' : 'Failed', errors);
+
   if (errors.length > 0) {
+    console.log('Validation errors:', errors);
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
