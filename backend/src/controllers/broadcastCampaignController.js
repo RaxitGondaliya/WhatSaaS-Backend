@@ -8,7 +8,7 @@ const whatsappService = require('../services/whatsappService');
 const VALID_CAMPAIGN_TYPES = ['marketing', 'utility', 'reminder', 'custom'];
 const VALID_MESSAGE_FORMATS = ['text', 'image', 'video', 'document'];
 const VALID_RECIPIENTS_TYPES = ['all_contacts', 'contact_group', 'selected_contacts'];
-const VALID_STATUSES = ['draft', 'scheduled', 'sent', 'cancelled'];
+const VALID_STATUSES = ['draft', 'scheduled', 'sent', 'failed', 'cancelled'];
 const VALID_BUTTON_TYPES = ['url', 'phone', 'quick_reply'];
 
 const normalizeText = (value) => {
@@ -965,18 +965,22 @@ exports.sendCampaign = async (req, res, next) => {
     }
 
     // Update campaign metrics
-    campaign.status = 'sent';
+    campaign.status = sent > 0 ? 'sent' : 'failed';
     campaign.sentAt = new Date();
     campaign.totalSent = sent;
     campaign.totalFailed = failed;
     campaign.totalDelivered = 0;
+    
+    if (sent === 0 && errors.length > 0) {
+      campaign.failureReason = errors[0].error;
+    }
     
     await campaign.save();
 
     if (sent === 0 && failed > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Failed to send broadcast campaign.',
+        message: errors[0].error,
         campaignId: campaign._id,
         status: campaign.status,
         statistics: {
