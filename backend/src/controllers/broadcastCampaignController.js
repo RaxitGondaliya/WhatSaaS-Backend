@@ -20,7 +20,7 @@ const normalizeText = (value) => {
 };
 
 const interpolateBroadcastText = (text, contact) => {
-  if (!text) return '';
+  if (!text) return text;
   
   const values = {
     customer_name: contact.name || '',
@@ -860,46 +860,24 @@ exports.sendCampaign = async (req, res, next) => {
     console.log(`Unique Recipients Count: ${uniqueRecipients.length}`);
     console.log('--------------------------------------\n');
 
-    // Convert message format to replyData format expected by whatsappService
-    let replyData = {};
-
-    if (campaign.messageFormat === 'image') {
-      replyData = {
-        type: 'Image',
-        imageUrl: campaign.mediaUrl,
-        caption: campaign.messageContent,
-        text: campaign.messageContent,
-      };
-    } else if (campaign.messageFormat === 'video') {
-      replyData = {
-        type: 'Video',
-        videoUrl: campaign.mediaUrl,
-        caption: campaign.messageContent,
-        text: campaign.messageContent,
-      };
-    } else if (campaign.messageFormat === 'document') {
-      replyData = {
-        type: 'Document',
-        documentUrl: campaign.mediaUrl,
-        documentName: campaign.mediaName || 'Document',
-        caption: campaign.messageContent,
-        text: campaign.messageContent,
-      };
-    } else {
-      replyData = {
-        type: 'Text',
-        text: campaign.messageContent,
-      };
-    }
-
+    // Convert message format to replyData format expected by whatsappService (Mirroring ChatbotEngineService payload format)
     const replyButtons = (campaign.buttons || []).map((b, i) => ({
       buttonId: `broadcast_${campaign._id}_btn_${i}`,
       text: b.text
     }));
 
-    if (replyButtons.length > 0) {
-      replyData.buttons = replyButtons;
-    }
+    let baseType = 'Text';
+    if (campaign.messageFormat === 'image') baseType = 'Image';
+    else if (campaign.messageFormat === 'video') baseType = 'Video';
+    else if (campaign.messageFormat === 'document') baseType = 'Document';
+
+    let replyData = {
+      type: baseType,
+      text: campaign.messageContent,
+      caption: campaign.messageContent,
+      imageUrl: campaign.messageFormat === 'image' ? campaign.mediaUrl : undefined,
+      buttons: replyButtons.length > 0 ? replyButtons : undefined
+    };
 
     let sent = 0;
     let failed = 0;
@@ -913,7 +891,15 @@ exports.sendCampaign = async (req, res, next) => {
         continue;
       }
 
-      console.log(`Sending to Recipient Name: ${contact.name || 'Unknown'}, Recipient Phone: ${contact.phone}`);
+      // Ensure phone number strictly matches Meta Cloud API requirements (Digits only)
+      const cleanPhone = String(contact.phone).replace(/\D/g, '');
+      if (!cleanPhone) {
+        failed++;
+        errors.push({ phone: contact.phone, error: 'Invalid phone number format' });
+        continue;
+      }
+
+      console.log(`Sending to Recipient Name: ${contact.name || 'Unknown'}, Recipient Phone: ${cleanPhone}`);
 
       // Dynamic Variable Replacement
       const personalizedReplyData = {
@@ -924,7 +910,7 @@ exports.sendCampaign = async (req, res, next) => {
 
       try {
         const response = await whatsappService.sendMessage(
-          contact.phone,
+          cleanPhone,
           personalizedReplyData,
           whatsappConfig.phoneNumberId,
           whatsappConfig.accessToken,

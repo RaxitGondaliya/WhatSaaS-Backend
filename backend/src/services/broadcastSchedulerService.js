@@ -80,9 +80,15 @@ const processScheduledCampaigns = async () => {
         // If controller explicitly failed the campaign logic (e.g. no WhatsApp config)
         if (statusCode !== 200 && statusCode !== 201) {
           console.error(`[Scheduler] Campaign ${lockedCampaign._id} rejected by controller with status ${statusCode}:`, JSON.stringify(responseData));
-          lockedCampaign.status = 'failed';
-          lockedCampaign.failureReason = responseData ? (responseData.message || JSON.stringify(responseData)) : 'Unknown API Error';
-          await lockedCampaign.save();
+          await BroadcastCampaign.updateOne(
+            { _id: lockedCampaign._id },
+            { 
+              $set: { 
+                status: 'failed', 
+                failureReason: responseData ? (responseData.message || JSON.stringify(responseData)) : 'Unknown API Error' 
+              } 
+            }
+          );
         }
 
       } catch (error) {
@@ -97,9 +103,15 @@ const processScheduledCampaigns = async () => {
         console.log(`Meta Response: ${error.message}`);
         console.log(`-----------------------------------------\n`);
         
-        lockedCampaign.status = 'failed';
-        lockedCampaign.failureReason = error.message;
-        await lockedCampaign.save();
+        await BroadcastCampaign.updateOne(
+          { _id: lockedCampaign._id },
+          { 
+            $set: { 
+              status: 'failed', 
+              failureReason: error.message 
+            } 
+          }
+        );
       }
     }
   } catch (error) {
