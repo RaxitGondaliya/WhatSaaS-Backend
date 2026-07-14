@@ -4,13 +4,18 @@ const broadcastCampaignController = require('../controllers/broadcastCampaignCon
 
 const processScheduledCampaigns = async () => {
   try {
-    const now = new Date();
+    console.log(`[Checking Pending Broadcasts]`);
+    const now = new Date(); // Always UTC in Node.js
     
     // Find due campaigns
     const dueCampaigns = await BroadcastCampaign.find({
       status: 'scheduled',
       scheduleAt: { $lte: now }
     });
+
+    if (dueCampaigns.length > 0) {
+      console.log(`[Pending Campaign Found] ${dueCampaigns.length} campaigns due for execution`);
+    }
 
     for (const campaign of dueCampaigns) {
       // Atomically update status to processing to prevent duplicate execution
@@ -26,7 +31,7 @@ const processScheduledCampaigns = async () => {
       }
 
       console.log(`\n======================================================`);
-      console.log(`[Scheduler] Starting execution for scheduled campaign`);
+      console.log(`[Sending Scheduled Broadcast]`);
       console.log(`======================================================`);
 
       try {
@@ -77,6 +82,8 @@ const processScheduledCampaigns = async () => {
         }
         console.log(`-----------------------------------------\n`);
 
+        console.log(`[Broadcast Completed] Successfully sent campaign ${lockedCampaign._id}`);
+
         // If controller explicitly failed the campaign logic (e.g. no WhatsApp config)
         if (statusCode !== 200 && statusCode !== 201) {
           console.error(`[Scheduler] Campaign ${lockedCampaign._id} rejected by controller with status ${statusCode}:`, JSON.stringify(responseData));
@@ -103,6 +110,8 @@ const processScheduledCampaigns = async () => {
         console.log(`Meta Response: ${error.message}`);
         console.log(`-----------------------------------------\n`);
         
+        console.log(`[Broadcast Completed] Failed to send campaign ${lockedCampaign._id}`);
+
         await BroadcastCampaign.updateOne(
           { _id: lockedCampaign._id },
           { 
@@ -126,7 +135,7 @@ const startScheduler = () => {
   // Run first check shortly after server boot
   setTimeout(processScheduledCampaigns, 5000);
   
-  console.log('[Scheduler] Broadcast campaign scheduler started (Polling every 1 minute).');
+  console.log('[Scheduler Started]');
 };
 
 module.exports = { startScheduler };
